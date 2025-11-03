@@ -64,14 +64,13 @@ def assure_db_collection_exists():
     else:
         print("Kolekcja już istnieje")
 
-def get_embedding(text):
+def get_embeddings(text):
     openai_client = get_openai_client()
     result = openai_client.embeddings.create(
         input=[text],
         model=EMBEDDING_MODEL,
         dimensions=EMBEDDING_DIM,
     )
-
 
     return result.data[0].embedding
 
@@ -86,7 +85,7 @@ def add_note_to_db(note_text):
         points=[
             PointStruct(
                 id=points_count.count + 1,
-                vector=get_embedding(text=note_text),
+                vector=get_embeddings(text=note_text),
                 payload={
                     "text": note_text,
                 },
@@ -110,7 +109,7 @@ def list_notes_from_db(query=None):
     else:
         notes = qdrant_client.search(
             collection_name=QDRANT_COLLECTION_NAME,
-            query_vector=get_embedding(text=query),
+            query_vector= get_embeddings(text=query),
             limit=10,
         )
         result = []
