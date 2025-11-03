@@ -48,11 +48,20 @@ def transcribe_audio(audio_bytes):
 # DB
 #
 @st.cache_resource
+
 def get_qdrant_client():
+    qdrant_url = env.get("QDRANT_URL")
+    qdrant_api_key = env.get("QDRANT_API_KEY")
+    
+    if not qdrant_url or not qdrant_api_key:
+        st.error("❌ Brak QDRANT_URL lub QDRANT_API_KEY w secrets!")
+        st.info("Dodaj je w Settings → Secrets w Streamlit Cloud")
+        st.stop()
+    
     return QdrantClient(
-    url=env["QDRANT_URL"], 
-    api_key=env["QDRANT_API_KEY"],
-)
+        url=qdrant_url, 
+        api_key=qdrant_api_key,
+    )
 
 def assure_db_collection_exists():
     qdrant_client = get_qdrant_client()
