@@ -9,12 +9,16 @@ from qdrant_client.models import PointStruct, Distance, VectorParams
 
 
 env = dotenv_values(".env")
-### Secrets using Streamlit Cloud Mechanism
-# https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
-if 'QDRANT_URL' in st.secrets:
-    env['QDRANT_URL'] = st.secrets['QDRANT_URL']
-if 'QDRANT_API_KEY' in st.secrets:
-    env['QDRANT_API_KEY'] = st.secrets['QDRANT_API_KEY']
+
+# Try to load from Streamlit secrets, fallback to .env
+try:
+    env['QDRANT_URL'] = st.secrets.get('QDRANT_URL', env.get('QDRANT_URL'))
+    env['QDRANT_API_KEY'] = st.secrets.get('QDRANT_API_KEY', env.get('QDRANT_API_KEY'))
+    if 'OPENAI_API_KEY' in st.secrets:
+        env['OPENAI_API_KEY'] = st.secrets['OPENAI_API_KEY']
+except:
+    # If st.secrets is not available, use values from .env
+    pass
 ###
 
 EMBEDDING_MODEL = "text-embedding-3-large"
