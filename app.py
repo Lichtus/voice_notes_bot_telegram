@@ -9,16 +9,12 @@ from qdrant_client.models import PointStruct, Distance, VectorParams
 
 
 env = dotenv_values(".env")
-
-# Try to load from Streamlit secrets, fallback to .env
-try:
-    env['QDRANT_URL'] = st.secrets.get('QDRANT_URL', env.get('QDRANT_URL'))
-    env['QDRANT_API_KEY'] = st.secrets.get('QDRANT_API_KEY', env.get('QDRANT_API_KEY'))
-    if 'OPENAI_API_KEY' in st.secrets:
-        env['OPENAI_API_KEY'] = st.secrets['OPENAI_API_KEY']
-except:
-    # If st.secrets is not available, use values from .env
-    pass
+### Secrets using Streamlit Cloud Mechanism
+# https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
+if 'QDRANT_URL' in st.secrets:
+    env['QDRANT_URL'] = st.secrets['QDRANT_URL']
+if 'QDRANT_API_KEY' in st.secrets:
+    env['QDRANT_API_KEY'] = st.secrets['QDRANT_API_KEY']
 ###
 
 EMBEDDING_MODEL = "text-embedding-3-large"
@@ -48,20 +44,11 @@ def transcribe_audio(audio_bytes):
 # DB
 #
 @st.cache_resource
-
 def get_qdrant_client():
-    qdrant_url = env.get("QDRANT_URL")
-    qdrant_api_key = env.get("QDRANT_API_KEY")
-    
-    if not qdrant_url or not qdrant_api_key:
-        st.error("❌ Brak QDRANT_URL lub QDRANT_API_KEY w secrets!")
-        st.info("Dodaj je w Settings → Secrets w Streamlit Cloud")
-        st.stop()
-    
     return QdrantClient(
-        url=qdrant_url, 
-        api_key=qdrant_api_key,
-    )
+    url=env["QDRANT_URL"], 
+    api_key=env["QDRANT_API_KEY"],
+)
 
 def assure_db_collection_exists():
     qdrant_client = get_qdrant_client()
