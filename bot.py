@@ -206,14 +206,12 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             message += (
                 f"{icon} *{percent}%* dopasowania\n"
-                f"🆔 ID: `{notatka.id}`\n"
                 f"📅 {data_str}{zadania_info}\n"
                 f"📌 *{notatka.temat}*\n"
                 f"📝 {notatka.opis[:120]}{'...' if len(notatka.opis) > 120 else ''}\n"
+                f"👉 `/notatka {notatka.id}` (kliknij aby odsłuchać)\n"
                 f"━━━━━━━━━━━━━━━━\n"
             )
-
-        message += "\n💡 Użyj `/notatka [id]` aby odsłuchać pełną notatkę"
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
