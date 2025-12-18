@@ -185,8 +185,12 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Formatuj wyniki
-        message = f"🔍 *Wyniki wyszukiwania głosowego dla:* \"{search_query}\"\n\n"
+        # Wyślij każdy wynik osobno z przyciskiem
+        await update.message.reply_text(
+            f"🔍 *Wyniki wyszukiwania dla:* \"{search_query}\"\n"
+            f"Znaleziono {len(results)} notatek\n",
+            parse_mode='Markdown'
+        )
 
         for notatka, similarity in results:
             # Zaokrąglij procent do 1 miejsca po przecinku
@@ -204,16 +208,22 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
             zadania_count = len(notatka.zadania)
             zadania_info = f" • {zadania_count} zadań" if zadania_count > 0 else ""
 
-            message += (
+            # Przycisk do odsłuchania
+            keyboard = [[InlineKeyboardButton("🎧 Odsłuchaj notatkę", callback_data=f"play_{notatka.id}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            message = (
                 f"{icon} *{percent}%* dopasowania\n"
                 f"📅 {data_str}{zadania_info}\n"
                 f"📌 *{notatka.temat}*\n"
-                f"📝 {notatka.opis[:120]}{'...' if len(notatka.opis) > 120 else ''}\n"
-                f"👉 `/notatka {notatka.id}` (kliknij aby odsłuchać)\n"
-                f"━━━━━━━━━━━━━━━━\n"
+                f"📝 {notatka.opis[:150]}{'...' if len(notatka.opis) > 150 else ''}"
             )
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(
+                message,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
 
     except Exception as e:
         logger.error(f"Błąd podczas głosowego wyszukiwania: {e}")
@@ -316,6 +326,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await query.answer("❌ Brak transkrypcji", show_alert=True)
+
+    elif action.startswith("play_"):
+        # Odsłuchaj notatkę
+        notatka_id = int(action.split("_")[1])
+        notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+        if notatka:
+            await query.answer()
+            # Użyj istniejącej funkcji do wysłania pełnej notatki
+            # Musimy stworzyć "fake" update z message
+            await send_full_note_from_callback(query, context, notatka)
+        else:
+            await query.answer("❌ Nie znaleziono notatki", show_alert=True)
 
 
 async def edit_temat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -519,6 +542,68 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
             await update.message.reply_text("⚠️ Nie mogę wysłać nagrania audio (plik wygasł)")
 
 
+async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE, notatka):
+    """Wysyła pełną notatkę z audio - wersja dla callback query"""
+    data_str = notatka.data_utworzenia.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Formatuj zadania
+    zadania_text = ""
+    if notatka.zadania:
+        zadania_text = "\n\n📋 *ZADANIA:*\n"
+        for i, zadanie in enumerate(notatka.zadania, 1):
+            status = "✅" if zadanie.wykonane else "⬜"
+            zadania_text += f"{status} `{zadanie.id}`: {zadanie.zadanie}\n"
+    else:
+        zadania_text = "\n\n📋 *ZADANIA:* brak"
+
+    # Główna wiadomość
+    message = (
+        f"🆔 *Notatka #{notatka.id}*\n"
+        f"📅 {data_str}\n\n"
+        f"📌 *TEMAT:*\n{notatka.temat}\n\n"
+        f"📝 *OPIS:*\n{notatka.opis}"
+        f"{zadania_text}"
+    )
+
+    # Przyciski
+    keyboard = []
+
+    # Przycisk do pełnej transkrypcji (jeśli jest dłuższa niż opis)
+    if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
+        keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
+
+    # Wyślij wiadomość
+    if keyboard:
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=message,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=message,
+            parse_mode='Markdown'
+        )
+
+    # Wyślij audio jeśli jest
+    if notatka.audio_file_id:
+        try:
+            await context.bot.send_voice(
+                chat_id=query.message.chat_id,
+                voice=notatka.audio_file_id,
+                caption="🎧 Oryginalne nagranie"
+            )
+        except Exception as e:
+            logger.error(f"Błąd wysyłania audio: {e}")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="⚠️ Nie mogę wysłać nagrania audio (plik wygasł)"
+            )
+
+
 @check_user_allowed
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler komendy /stats"""
@@ -571,6 +656,7 @@ def main():
 
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
 
     # Uruchomienie bota
     logger.info("🚀 Bot uruchomiony!")
