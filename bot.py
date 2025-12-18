@@ -96,26 +96,38 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Transkrybuję audio...")
         transcription = ai.transcribe_audio(bytes(audio_bytes), filename="voice.ogg")
 
-        # Wykryj keywordy wyszukiwania
-        search_keywords = ["szukaj", "znajdź", "wyszukaj", "pokaż", "search", "find"]
-        transcription_lower = transcription.lower().strip()
+        # Loguj transkrypcję dla debugowania
+        logger.info(f"Transkrypcja otrzymana: '{transcription}'")
 
-        # Sprawdź czy zaczyna się od keywordu
+        # Wykryj keywordy wyszukiwania
+        search_keywords = ["szukaj", "znajdź", "wyszukaj", "pokaż", "search", "find", "znajdz"]
+
+        # Wyczyść transkrypcję - usuń znaki interpunkcyjne z początku
+        transcription_clean = transcription.strip().lstrip(".,!?;: ")
+        transcription_lower = transcription_clean.lower()
+
+        # Pobierz pierwsze słowo
+        first_word = transcription_lower.split()[0] if transcription_lower.split() else ""
+
+        # Sprawdź czy pierwsze słowo to keyword
         is_search = False
         search_query = None
 
         for keyword in search_keywords:
-            if transcription_lower.startswith(keyword):
-                # Usuń keyword i zostaw resztę jako query
-                search_query = transcription[len(keyword):].strip()
+            if first_word == keyword or transcription_lower.startswith(keyword + " "):
+                # Usuń pierwsze słowo (keyword) z transkrypcji
+                words = transcription_clean.split(maxsplit=1)
+                search_query = words[1] if len(words) > 1 else ""
                 is_search = True
-                logger.info(f"Wykryto wyszukiwanie głosowe: '{search_query}'")
+                logger.info(f"✓ Wykryto keyword '{keyword}' -> wyszukiwanie: '{search_query}'")
                 break
 
         # Jeśli to wyszukiwanie - obsłuż przez handle_voice_search
         if is_search and search_query:
             await handle_voice_search(update, context, search_query)
             return ConversationHandler.END
+
+        logger.info(f"Pierwsze słowo: '{first_word}' - nie wykryto keywordu wyszukiwania, tworzę notatkę")
 
         # W przeciwnym razie - normalne przetwarzanie notatki
         await update.message.reply_text("🤖 Analizuję notatkę...")
