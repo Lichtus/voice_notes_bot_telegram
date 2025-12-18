@@ -58,13 +58,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎙️ *Witaj w Voice Notes Bot!*\n\n"
         "📝 *Jak używać:*\n"
-        "• Wyślij mi *voice message* - automatycznie stworzę notatkę!\n"
+        "• Wyślij mi *voice message* (max 15-20 min) - automatycznie stworzę notatkę!\n"
         "• `/lista` - zobacz ostatnie notatki\n"
+        "• `/notatka [id]` - odsłuchaj i zobacz pełną notatkę\n"
+        "• `/ostatnia` - pokaż ostatnią notatkę\n"
         "• `/szukaj [słowo]` - wyszukaj notatki\n"
         "• `/zadania` - zobacz zadania do zrobienia\n"
         "• `/wykonane [id]` - oznacz zadanie jako wykonane\n"
         "• `/stats` - statystyki\n\n"
-        "✨ Bot automatycznie wyciągnie temat, opis i zadania z Twojej notatki!",
+        "✨ Bot automatycznie wyciągnie temat, opis i zadania z Twojej notatki!\n\n"
+        "⚠️ *Limit:* Notatki dłuższe niż 20 minut mogą nie działać",
         parse_mode='Markdown'
     )
 
@@ -190,6 +193,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Anulowano")
         return ConversationHandler.END
 
+    elif action.startswith("transcript_"):
+        # Pokaż pełną transkrypcję
+        notatka_id = int(action.split("_")[1])
+        notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+        if notatka and notatka.transkrypcja:
+            await query.answer()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n\n{notatka.transkrypcja}",
+                parse_mode='Markdown'
+            )
+        else:
+            await query.answer("❌ Brak transkrypcji", show_alert=True)
+
 
 async def edit_temat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler edycji tematu"""
@@ -227,6 +245,8 @@ async def lista(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📌 *{notatka.temat}*{zadania_info}\n"
             f"📝 {notatka.opis[:100]}{'...' if len(notatka.opis) > 100 else ''}\n"
         )
+
+    message += "\n💡 Użyj `/notatka [id]` aby odsłuchać i zobaczyć pełną notatkę"
 
     await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -303,6 +323,94 @@ async def wykonane(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @check_user_allowed
+async def notatka(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler komendy /notatka [id]"""
+    user_id = update.effective_user.id
+
+    if not context.args:
+        await update.message.reply_text("❓ Użycie: `/notatka [id]`\nPobierz ID z `/lista`", parse_mode='Markdown')
+        return
+
+    try:
+        notatka_id = int(context.args[0])
+        notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+        if not notatka:
+            await update.message.reply_text(f"❌ Nie znaleziono notatki #{notatka_id}")
+            return
+
+        # Formatuj notatę
+        await send_full_note(update, context, notatka)
+
+    except ValueError:
+        await update.message.reply_text("❌ ID notatki musi być liczbą!")
+
+
+@check_user_allowed
+async def ostatnia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler komendy /ostatnia"""
+    user_id = update.effective_user.id
+    notatki = db.get_notatki(user_id, limit=1)
+
+    if not notatki:
+        await update.message.reply_text("📭 Nie masz jeszcze żadnych notatek!")
+        return
+
+    notatka = notatki[0]
+    await send_full_note(update, context, notatka)
+
+
+async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, notatka):
+    """Wysyła pełną notatkę z audio i przyciskami"""
+    data_str = notatka.data_utworzenia.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Formatuj zadania
+    zadania_text = ""
+    if notatka.zadania:
+        zadania_text = "\n\n📋 *ZADANIA:*\n"
+        for i, zadanie in enumerate(notatka.zadania, 1):
+            status = "✅" if zadanie.wykonane else "⬜"
+            zadania_text += f"{status} `{zadanie.id}`: {zadanie.zadanie}\n"
+    else:
+        zadania_text = "\n\n📋 *ZADANIA:* brak"
+
+    # Główna wiadomość
+    message = (
+        f"🆔 *Notatka #{notatka.id}*\n"
+        f"📅 {data_str}\n\n"
+        f"📌 *TEMAT:*\n{notatka.temat}\n\n"
+        f"📝 *OPIS:*\n{notatka.opis}"
+        f"{zadania_text}"
+    )
+
+    # Przyciski
+    keyboard = []
+
+    # Przycisk do pełnej transkrypcji (jeśli jest dłuższa niż opis)
+    if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
+        keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
+
+    # Wyślij wiadomość
+    if keyboard:
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    # Wyślij audio jeśli jest
+    if notatka.audio_file_id:
+        try:
+            await context.bot.send_voice(
+                chat_id=update.effective_chat.id,
+                voice=notatka.audio_file_id,
+                caption="🎧 Oryginalne nagranie"
+            )
+        except Exception as e:
+            logger.error(f"Błąd wysyłania audio: {e}")
+            await update.message.reply_text("⚠️ Nie mogę wysłać nagrania audio (plik wygasł)")
+
+
+@check_user_allowed
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler komendy /stats"""
     user_id = update.effective_user.id
@@ -345,10 +453,15 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("lista", lista))
+    application.add_handler(CommandHandler("notatka", notatka))
+    application.add_handler(CommandHandler("ostatnia", ostatnia))
     application.add_handler(CommandHandler("szukaj", szukaj))
     application.add_handler(CommandHandler("zadania", zadania))
     application.add_handler(CommandHandler("wykonane", wykonane))
     application.add_handler(CommandHandler("stats", stats))
+
+    # Handler dla przycisków (poza conversation handler)
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
 
     # Uruchomienie bota
     logger.info("🚀 Bot uruchomiony!")

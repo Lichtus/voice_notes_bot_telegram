@@ -90,6 +90,23 @@ class Database:
         self.session.commit()
         return notatka
 
+    def get_notatka_by_id(self, notatka_id, telegram_user_id):
+        """
+        Pobiera notatkę po ID (z weryfikacją użytkownika)
+
+        Args:
+            notatka_id: ID notatki
+            telegram_user_id: ID użytkownika (weryfikacja)
+
+        Returns:
+            Notatka lub None jeśli nie znaleziono
+        """
+        return self.session.query(Notatka)\
+            .filter(
+                Notatka.id == notatka_id,
+                Notatka.telegram_user_id == telegram_user_id
+            ).first()
+
     def get_notatki(self, telegram_user_id, limit=10):
         """
         Pobiera ostatnie notatki użytkownika
