@@ -9,6 +9,9 @@ from config import OPENAI_API_KEY, WHISPER_MODEL, GPT_MODEL, EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
+# Model dla embeddingów
+EMBEDDING_MODEL = "text-embedding-3-small"
+
 
 class AIProcessor:
     """Klasa do przetwarzania audio i ekstrakcji danych przez AI"""
@@ -110,6 +113,33 @@ class AIProcessor:
             logger.error(f"Błąd podczas ekstrakcji struktury: {e}")
             raise
 
+    def get_embedding(self, text):
+        """
+        Generuje embedding dla tekstu używając OpenAI
+
+        Args:
+            text: Tekst do embedowania
+
+        Returns:
+            list: Wektor embedding
+        """
+        try:
+            logger.info(f"Generowanie embedding dla tekstu ({len(text)} znaków)")
+
+            response = self.client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=text
+            )
+
+            embedding = response.data[0].embedding
+            logger.info(f"Embedding wygenerowany: {len(embedding)} wymiarów")
+
+            return embedding
+
+        except Exception as e:
+            logger.error(f"Błąd podczas generowania embedding: {e}")
+            raise
+
     def process_voice_note(self, audio_bytes, filename="voice.ogg"):
         """
         Pełne przetwarzanie notatki głosowej: transkrypcja + ekstrakcja struktury
@@ -123,7 +153,8 @@ class AIProcessor:
                 "transkrypcja": str,
                 "temat": str,
                 "opis": str,
-                "zadania": list[str]
+                "zadania": list[str],
+                "embedding": list (wektor)
             }
         """
         try:
@@ -133,12 +164,18 @@ class AIProcessor:
             # Krok 2: Ekstrakcja struktury
             structure = self.extract_structure(transcription)
 
+            # Krok 3: Generowanie embedding dla semantycznego wyszukiwania
+            # Używamy kombinacji tematu i opisu dla najlepszego dopasowania
+            embedding_text = f"{structure['temat']}. {structure['opis']}"
+            embedding = self.get_embedding(embedding_text)
+
             # Połącz wyniki
             return {
                 "transkrypcja": transcription,
                 "temat": structure["temat"],
                 "opis": structure["opis"],
-                "zadania": structure["zadania"]
+                "zadania": structure["zadania"],
+                "embedding": embedding
             }
 
         except Exception as e:

@@ -1,6 +1,8 @@
 """
 Moduł obsługi bazy danych SQLite dla Voice Notes Bot
 """
+import json
+import numpy as np
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -21,6 +23,7 @@ class Notatka(Base):
     opis = Column(Text)
     transkrypcja = Column(Text)
     audio_file_id = Column(Text)  # Telegram file_id
+    embedding = Column(Text)  # JSON embedding dla semantic search
 
     # Relacja do zadań
     zadania = relationship("Zadanie", back_populates="notatka", cascade="all, delete-orphan")
@@ -56,7 +59,7 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -67,16 +70,23 @@ class Database:
             transkrypcja: Pełna transkrypcja audio
             audio_file_id: ID pliku audio w Telegram
             zadania_list: Lista zadań (strings)
+            embedding_vector: Wektor embedding dla semantic search (list)
 
         Returns:
             Notatka: Utworzona notatka
         """
+        # Serializuj embedding do JSON jeśli podany
+        embedding_json = None
+        if embedding_vector:
+            embedding_json = json.dumps(embedding_vector)
+
         notatka = Notatka(
             telegram_user_id=telegram_user_id,
             temat=temat,
             opis=opis,
             transkrypcja=transkrypcja,
-            audio_file_id=audio_file_id
+            audio_file_id=audio_file_id,
+            embedding=embedding_json
         )
 
         # Dodaj zadania jeśli są
@@ -219,6 +229,58 @@ class Database:
             "zadania_wykonane": liczba_wykonanych,
             "zadania_do_zrobienia": liczba_zadan - liczba_wykonanych
         }
+
+    def semantic_search(self, telegram_user_id, query_embedding, limit=5):
+        """
+        Wyszukiwanie semantyczne notatek używając cosine similarity
+
+        Args:
+            telegram_user_id: ID użytkownika
+            query_embedding: Embedding zapytania (list)
+            limit: Maksymalna liczba wyników
+
+        Returns:
+            Lista tuple (notatka, similarity_score) posortowana malejąco po score
+        """
+        # Pobierz wszystkie notatki użytkownika z embeddingami
+        notatki = self.session.query(Notatka)\
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.embedding.isnot(None)
+            ).all()
+
+        if not notatki:
+            return []
+
+        # Oblicz cosine similarity dla każdej notatki
+        results = []
+        query_vec = np.array(query_embedding)
+
+        for notatka in notatki:
+            try:
+                # Deserializuj embedding z JSON
+                note_embedding = json.loads(notatka.embedding)
+                note_vec = np.array(note_embedding)
+
+                # Cosine similarity
+                similarity = np.dot(query_vec, note_vec) / (
+                    np.linalg.norm(query_vec) * np.linalg.norm(note_vec)
+                )
+
+                # Konwertuj na procenty (0-100)
+                similarity_percent = float(similarity * 100)
+
+                results.append((notatka, similarity_percent))
+
+            except (json.JSONDecodeError, ValueError) as e:
+                # Pomiń notatki z uszkodzonymi embeddingami
+                continue
+
+        # Sortuj malejąco po similarity
+        results.sort(key=lambda x: x[1], reverse=True)
+
+        # Zwróć top N wyników
+        return results[:limit]
 
     def close(self):
         """Zamyka połączenie z bazą"""

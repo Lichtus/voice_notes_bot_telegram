@@ -57,24 +57,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler komendy /start"""
     await update.message.reply_text(
         "🎙️ *Witaj w Voice Notes Bot!*\n\n"
-        "📝 *Jak używać:*\n"
-        "• Wyślij mi *voice message* (max 15-20 min) - automatycznie stworzę notatkę!\n"
-        "• `/lista` - zobacz ostatnie notatki\n"
-        "• `/notatka [id]` - odsłuchaj i zobacz pełną notatkę\n"
-        "• `/ostatnia` - pokaż ostatnią notatkę\n"
-        "• `/szukaj [słowo]` - wyszukaj notatki\n"
-        "• `/zadania` - zobacz zadania do zrobienia\n"
-        "• `/wykonane [id]` - oznacz zadanie jako wykonane\n"
+        "📝 *Dodawanie notatek:*\n"
+        "• Wyślij *voice message* (max 15-20 min) - automatycznie stworzę notatkę!\n"
+        "• Bot wyciągnie temat, opis i zadania\n\n"
+        "🔍 *Głosowe wyszukiwanie:*\n"
+        "• Powiedz: *\"Szukaj [temat]\"* w voice message\n"
+        "• Np: \"Szukaj spotkanie z Jankiem\"\n"
+        "• Działa też: znajdź, wyszukaj, pokaż, search, find\n"
+        "• Otrzymasz wyniki z % dopasowania\n\n"
+        "📱 *Komendy:*\n"
+        "• `/lista` - ostatnie notatki\n"
+        "• `/notatka [id]` - odsłuchaj pełną notatkę\n"
+        "• `/ostatnia` - ostatnia notatka\n"
+        "• `/szukaj [tekst]` - szukaj tekstowo\n"
+        "• `/zadania` - zadania do zrobienia\n"
+        "• `/wykonane [id]` - oznacz zadanie\n"
         "• `/stats` - statystyki\n\n"
-        "✨ Bot automatycznie wyciągnie temat, opis i zadania z Twojej notatki!\n\n"
-        "⚠️ *Limit:* Notatki dłuższe niż 20 minut mogą nie działać",
+        "⚠️ *Limit:* max 20 minut nagrania",
         parse_mode='Markdown'
     )
 
 
 @check_user_allowed
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler notatek głosowych"""
+    """Handler notatek głosowych i głosowego wyszukiwania"""
     user_id = update.effective_user.id
 
     # Pobierz plik audio
@@ -86,19 +92,49 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(voice.file_id)
         audio_bytes = await file.download_as_bytearray()
 
-        # Informacja o transkrypcji
+        # Transkrypcja dla wykrycia keywordu
         await update.message.reply_text("🔄 Transkrybuję audio...")
+        transcription = ai.transcribe_audio(bytes(audio_bytes), filename="voice.ogg")
 
-        # Przetwarzanie przez AI
-        result = ai.process_voice_note(bytes(audio_bytes), filename="voice.ogg")
+        # Wykryj keywordy wyszukiwania
+        search_keywords = ["szukaj", "znajdź", "wyszukaj", "pokaż", "search", "find"]
+        transcription_lower = transcription.lower().strip()
+
+        # Sprawdź czy zaczyna się od keywordu
+        is_search = False
+        search_query = None
+
+        for keyword in search_keywords:
+            if transcription_lower.startswith(keyword):
+                # Usuń keyword i zostaw resztę jako query
+                search_query = transcription[len(keyword):].strip()
+                is_search = True
+                logger.info(f"Wykryto wyszukiwanie głosowe: '{search_query}'")
+                break
+
+        # Jeśli to wyszukiwanie - obsłuż przez handle_voice_search
+        if is_search and search_query:
+            await handle_voice_search(update, context, search_query)
+            return ConversationHandler.END
+
+        # W przeciwnym razie - normalne przetwarzanie notatki
+        await update.message.reply_text("🤖 Analizuję notatkę...")
+
+        # Przetwarzanie przez AI (z transkrypcją już gotową)
+        structure = ai.extract_structure(transcription)
+
+        # Generowanie embedding
+        embedding_text = f"{structure['temat']}. {structure['opis']}"
+        embedding = ai.get_embedding(embedding_text)
 
         # Zapisz do pending
         pending_notes[user_id] = {
             "audio_file_id": voice.file_id,
-            "transkrypcja": result["transkrypcja"],
-            "temat": result["temat"],
-            "opis": result["opis"],
-            "zadania": result["zadania"]
+            "transkrypcja": transcription,
+            "temat": structure["temat"],
+            "opis": structure["opis"],
+            "zadania": structure["zadania"],
+            "embedding": embedding
         }
 
         # Pokaż wynik do zatwierdzenia
@@ -113,6 +149,68 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return ConversationHandler.END
+
+
+async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE, search_query: str):
+    """Handler głosowego wyszukiwania notatek"""
+    user_id = update.effective_user.id
+
+    try:
+        await update.message.reply_text(f"🔍 Szukam notatek dla: *\"{search_query}\"*", parse_mode='Markdown')
+
+        # Generuj embedding dla query
+        query_embedding = ai.get_embedding(search_query)
+
+        # Wyszukiwanie semantyczne
+        results = db.semantic_search(user_id, query_embedding, limit=5)
+
+        if not results:
+            await update.message.reply_text(
+                "😕 Nie znaleziono żadnych notatek.\n\n"
+                "Spróbuj:\n"
+                "• Użyć innych słów\n"
+                "• Bardziej ogólnego zapytania"
+            )
+            return
+
+        # Formatuj wyniki
+        message = f"🔍 *Wyniki wyszukiwania głosowego dla:* \"{search_query}\"\n\n"
+
+        for notatka, similarity in results:
+            # Zaokrąglij procent do 1 miejsca po przecinku
+            percent = round(similarity, 1)
+            data_str = notatka.data_utworzenia.strftime("%Y-%m-%d %H:%M")
+
+            # Ikona w zależności od dopasowania
+            if percent >= 80:
+                icon = "🟢"
+            elif percent >= 60:
+                icon = "🟡"
+            else:
+                icon = "🟠"
+
+            zadania_count = len(notatka.zadania)
+            zadania_info = f" • {zadania_count} zadań" if zadania_count > 0 else ""
+
+            message += (
+                f"{icon} *{percent}%* dopasowania\n"
+                f"🆔 ID: `{notatka.id}`\n"
+                f"📅 {data_str}{zadania_info}\n"
+                f"📌 *{notatka.temat}*\n"
+                f"📝 {notatka.opis[:120]}{'...' if len(notatka.opis) > 120 else ''}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+            )
+
+        message += "\n💡 Użyj `/notatka [id]` aby odsłuchać pełną notatkę"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Błąd podczas głosowego wyszukiwania: {e}")
+        await update.message.reply_text(
+            f"❌ Wystąpił błąd podczas wyszukiwania:\n`{str(e)}`",
+            parse_mode='Markdown'
+        )
 
 
 async def show_note_preview(update: Update, user_id: int):
@@ -174,7 +272,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 opis=note["opis"],
                 transkrypcja=note["transkrypcja"],
                 audio_file_id=note["audio_file_id"],
-                zadania_list=note["zadania"]
+                zadania_list=note["zadania"],
+                embedding_vector=note.get("embedding")
             )
             del pending_notes[user_id]
             await query.edit_message_text("🎉 *Notatka zapisana!*", parse_mode='Markdown')
