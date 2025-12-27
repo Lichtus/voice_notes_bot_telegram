@@ -392,23 +392,39 @@ Wybierz: **Yes**
 
 ### 3. Backup bazy danych
 
-Regularnie backupuj `voice_notes.db`:
+**ZALECANE: Użyj automatycznych backupów do Cloud Storage**
+
+📚 **Pełny przewodnik:** Zobacz `CLOUD_STORAGE_SETUP.md` dla kompletnego systemu backupów z:
+- ✅ Automatyczne backupy co 6h do Google Cloud Storage
+- ✅ 30-dniowa retencja
+- ✅ Całkowicie darmowe (Free Tier)
+- ✅ Łatwe przywracanie w razie awarii
+
+**Szybki setup:**
+
+```bash
+cd ~/voice-notes-bot
+
+# Ustaw nazwę bucket w skrypcie
+nano backup_to_cloud.sh  # Zmień GCS_BUCKET na swoją nazwę
+
+# Test backupu
+./backup_to_cloud.sh
+
+# Automatyzacja (backup co 6h)
+crontab -e
+# Dodaj: 0 */6 * * * /home/user/voice-notes-bot/backup_to_cloud.sh >> /home/user/voice-notes-bot/backup.log 2>&1
+```
+
+**Alternatywnie - prosty lokalny backup:**
 
 ```bash
 # Lokalne pobranie bazy
 gcloud compute scp voice-notes-bot:~/voice-notes-bot/voice_notes.db ./voice_notes_backup.db
-```
 
-**Automatyczny backup (opcjonalnie):**
-
-```bash
-# Na VM
+# Lub automatyczny backup lokalny (codziennie o 3:00)
 crontab -e
-```
-
-Dodaj linię (backup codziennie o 3:00):
-```
-0 3 * * * cp ~/voice-notes-bot/voice_notes.db ~/voice_notes_backup_$(date +\%Y\%m\%d).db
+# Dodaj: 0 3 * * * cp ~/voice-notes-bot/voice_notes.db ~/voice_notes_backup_$(date +\%Y\%m\%d).db
 ```
 
 ---
