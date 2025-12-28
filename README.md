@@ -5,13 +5,14 @@ Bot Telegram do automatycznego przetwarzania notatek głosowych z wykorzystaniem
 ## ✨ Funkcje
 
 - 🎤 **Nagrywanie głosowe** - wyślij voice message, bot automatycznie przetworzy
+- 🎵 **Pliki audio** - wgraj pliki audio (MP3, WAV, M4A, OGG, WEBM) - wszystkie obsługiwane!
 - 🤖 **AI Processing** - automatyczna transkrypcja (Whisper) i ekstrakcja struktury (GPT-4o-mini)
 - 📋 **Struktura notatek**:
   - Temat (automatycznie wykrywany)
   - Opis (pełna treść)
   - Zadania do zrobienia (automatycznie wyodrębniane)
 - 💾 **Baza SQLite** - wszystkie notatki zapisywane lokalnie
-- 🔍 **Wyszukiwanie** - szukaj po słowach kluczowych
+- 🔍 **Wyszukiwanie semantyczne** - głosowe i tekstowe wyszukiwanie z % dopasowania
 - ✅ **Zarządzanie zadaniami** - lista zadań i oznaczanie jako wykonane
 - 🔒 **Bezpieczeństwo** - whitelist użytkowników (tylko Ty masz dostęp)
 

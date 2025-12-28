@@ -58,8 +58,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎙️ *Witaj w Voice Notes Bot!*\n\n"
         "📝 *Dodawanie notatek:*\n"
-        "• Wyślij *voice message* (max 15-20 min) - automatycznie stworzę notatkę!\n"
-        "• Bot wyciągnie temat, opis i zadania\n\n"
+        "• Wyślij *voice message* (max 15-20 min)\n"
+        "• Lub wgraj *plik audio* (MP3, WAV, M4A, OGG)\n"
+        "• Bot automatycznie wyciągnie temat, opis i zadania!\n\n"
         "🔍 *Głosowe wyszukiwanie:*\n"
         "• Powiedz: *\"Szukaj [temat]\"* w voice message\n"
         "• Np: \"Szukaj spotkanie z Jankiem\"\n"
@@ -80,21 +81,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @check_user_allowed
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler notatek głosowych i głosowego wyszukiwania"""
+    """Handler notatek głosowych, plików audio i głosowego wyszukiwania"""
     user_id = update.effective_user.id
 
-    # Pobierz plik audio
-    voice = update.message.voice
-    await update.message.reply_text("🎤 Nagranie otrzymane! Przetwarzam...")
+    # Pobierz plik audio (voice message lub audio file)
+    if update.message.voice:
+        audio_obj = update.message.voice
+        file_type = "voice"
+        filename = "voice.ogg"
+    elif update.message.audio:
+        audio_obj = update.message.audio
+        file_type = "audio"
+        # Użyj oryginalnej nazwy pliku lub domyślnej z rozszerzeniem
+        filename = update.message.audio.file_name or f"audio.{update.message.audio.mime_type.split('/')[-1]}"
+    else:
+        await update.message.reply_text("❌ Błąd: Brak pliku audio")
+        return ConversationHandler.END
+
+    await update.message.reply_text("🎤 Plik audio otrzymany! Przetwarzam...")
 
     try:
         # Pobierz plik
-        file = await context.bot.get_file(voice.file_id)
+        file = await context.bot.get_file(audio_obj.file_id)
         audio_bytes = await file.download_as_bytearray()
 
         # Transkrypcja dla wykrycia keywordu
         await update.message.reply_text("🔄 Transkrybuję audio...")
-        transcription = ai.transcribe_audio(bytes(audio_bytes), filename="voice.ogg")
+        transcription = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
 
         # Loguj transkrypcję dla debugowania
         logger.info(f"Transkrypcja otrzymana: '{transcription}'")
@@ -141,7 +154,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Zapisz do pending
         pending_notes[user_id] = {
-            "audio_file_id": voice.file_id,
+            "audio_file_id": audio_obj.file_id,
             "transkrypcja": transcription,
             "temat": structure["temat"],
             "opis": structure["opis"],
@@ -633,9 +646,9 @@ def main():
     # Tworzenie aplikacji
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Conversation handler dla voice notes
+    # Conversation handler dla voice notes i audio files
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.VOICE, handle_voice)],
+        entry_points=[MessageHandler(filters.VOICE | filters.AUDIO, handle_voice)],
         states={
             WAITING_CONFIRMATION: [CallbackQueryHandler(button_handler)],
             EDITING_TEMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_temat)],
