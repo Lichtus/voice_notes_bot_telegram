@@ -3,3 +3,5 @@ openai==1.12.0
 python-dotenv==1.0.1
 sqlalchemy==2.0.25
 numpy==1.26.3
+weasyprint==60.2
+psycopg2-binary==2.9.9

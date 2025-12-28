@@ -26,6 +26,7 @@ class Notatka(Base):
     opis = Column(Text)
     transkrypcja = Column(Text)
     audio_file_id = Column(Text)  # Telegram file_id
+    photo_file_ids = Column(Text)  # JSON array z Telegram file_id zdjęć
     embedding = Column(Text)  # JSON embedding dla semantic search
 
     # Relacja do zadań
@@ -75,7 +76,7 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -87,6 +88,7 @@ class Database:
             audio_file_id: ID pliku audio w Telegram
             zadania_list: Lista zadań (strings)
             embedding_vector: Wektor embedding dla semantic search (list)
+            photo_file_ids: Lista Telegram file_id zdjęć (strings)
 
         Returns:
             Notatka: Utworzona notatka
@@ -96,12 +98,18 @@ class Database:
         if embedding_vector:
             embedding_json = json.dumps(embedding_vector)
 
+        # Serializuj photo_file_ids do JSON jeśli podane
+        photos_json = None
+        if photo_file_ids:
+            photos_json = json.dumps(photo_file_ids)
+
         notatka = Notatka(
             telegram_user_id=telegram_user_id,
             temat=temat,
             opis=opis,
             transkrypcja=transkrypcja,
             audio_file_id=audio_file_id,
+            photo_file_ids=photos_json,
             embedding=embedding_json
         )
 
