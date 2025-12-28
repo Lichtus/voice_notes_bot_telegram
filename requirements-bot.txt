@@ -4,4 +4,5 @@ python-dotenv==1.0.1
 sqlalchemy==2.0.25
 numpy==1.26.3
 weasyprint==60.2
+pydyf==0.10.0
 psycopg2-binary==2.9.9
