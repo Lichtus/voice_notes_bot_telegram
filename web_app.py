@@ -13,7 +13,7 @@ from flask import Flask, render_template, request, Response
 from dotenv import load_dotenv
 
 # Import modułów bota
-from database import DatabaseManager
+from database import Database
 
 # Konfiguracja
 load_dotenv()
@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Inicjalizacja bazy danych
-db = DatabaseManager()
+db = Database()
 
 # Telegram Bot Token (do pobierania zdjęć)
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
