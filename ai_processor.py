@@ -28,7 +28,9 @@ class AIProcessor:
             filename: Nazwa pliku (dla OpenAI API)
 
         Returns:
-            str: Transkrypcja tekstu
+            tuple: (transcript_text, duration_seconds)
+                - transcript_text: Transkrypcja tekstu
+                - duration_seconds: Szacowana długość audio w sekundach
         """
         try:
             audio_file = BytesIO(audio_bytes)
@@ -36,14 +38,19 @@ class AIProcessor:
 
             logger.info(f"Rozpoczynam transkrypcję audio ({len(audio_bytes)} bajtów)")
 
+            # Szacowanie długości audio na podstawie rozmiaru pliku
+            # Dla OGG Opus: ~6-12 KB/s (zależne od jakości)
+            # Używamy konserwatywnego szacunku: 10 KB/s
+            estimated_duration = max(1, len(audio_bytes) / 10000)  # w sekundach
+
             transcript = self.client.audio.transcriptions.create(
                 file=audio_file,
                 model=WHISPER_MODEL,
                 response_format="text"
             )
 
-            logger.info(f"Transkrypcja zakończona: {len(transcript)} znaków")
-            return transcript
+            logger.info(f"Transkrypcja zakończona: {len(transcript)} znaków, ~{estimated_duration:.1f}s")
+            return transcript, int(estimated_duration)
 
         except Exception as e:
             logger.error(f"Błąd podczas transkrypcji: {e}")
@@ -57,11 +64,17 @@ class AIProcessor:
             transcription: Tekst transkrypcji
 
         Returns:
-            dict: {
-                "temat": str,
-                "opis": str,
-                "zadania": list[str]
-            }
+            tuple: (result_dict, usage_dict)
+                - result_dict: {
+                    "temat": str,
+                    "opis": str,
+                    "zadania": list[str]
+                }
+                - usage_dict: {
+                    "input_tokens": int,
+                    "output_tokens": int,
+                    "total_tokens": int
+                }
         """
         try:
             logger.info(f"Ekstrakcja struktury z transkrypcji ({len(transcription)} znaków)")
@@ -87,6 +100,14 @@ class AIProcessor:
             result_text = response.choices[0].message.content
             logger.info(f"Otrzymano odpowiedź z GPT: {result_text}")
 
+            # Pobierz informacje o usage
+            usage = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+            logger.info(f"GPT usage: {usage['input_tokens']} input + {usage['output_tokens']} output = {usage['total_tokens']} total")
+
             # Parsowanie JSON
             result = json.loads(result_text)
 
@@ -99,16 +120,16 @@ class AIProcessor:
                 result["zadania"] = []
 
             logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', {len(result['zadania'])} zadań")
-            return result
+            return result, usage
 
         except json.JSONDecodeError as e:
             logger.error(f"Błąd parsowania JSON z GPT: {e}")
-            # Fallback - zwróć podstawową strukturę
+            # Fallback - zwróć podstawową strukturę bez usage
             return {
                 "temat": transcription[:100] if len(transcription) > 100 else transcription,
                 "opis": transcription,
                 "zadania": []
-            }
+            }, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         except Exception as e:
             logger.error(f"Błąd podczas ekstrakcji struktury: {e}")
             raise
@@ -121,7 +142,9 @@ class AIProcessor:
             text: Tekst do embedowania
 
         Returns:
-            list: Wektor embedding
+            tuple: (embedding_vector, usage_tokens)
+                - embedding_vector: Wektor embedding (list)
+                - usage_tokens: Liczba użytych tokenów (int)
         """
         try:
             logger.info(f"Generowanie embedding dla tekstu ({len(text)} znaków)")
@@ -132,9 +155,11 @@ class AIProcessor:
             )
 
             embedding = response.data[0].embedding
-            logger.info(f"Embedding wygenerowany: {len(embedding)} wymiarów")
+            usage_tokens = response.usage.total_tokens
 
-            return embedding
+            logger.info(f"Embedding wygenerowany: {len(embedding)} wymiarów, {usage_tokens} tokenów")
+
+            return embedding, usage_tokens
 
         except Exception as e:
             logger.error(f"Błąd podczas generowania embedding: {e}")
@@ -142,7 +167,7 @@ class AIProcessor:
 
     def process_voice_note(self, audio_bytes, filename="voice.ogg"):
         """
-        Pełne przetwarzanie notatki głosowej: transkrypcja + ekstrakcja struktury
+        Pełne przetwarzanie notatki głosowej: transkrypcja + ekstrakcja struktury + koszty
 
         Args:
             audio_bytes: Bajty pliku audio
@@ -154,20 +179,47 @@ class AIProcessor:
                 "temat": str,
                 "opis": str,
                 "zadania": list[str],
-                "embedding": list (wektor)
+                "embedding": list (wektor),
+                "cost_data": {
+                    "audio_duration_seconds": int,
+                    "tokens_input": int,
+                    "tokens_output": int,
+                    "tokens_embedding": int,
+                    "cost_whisper_usd": float,
+                    "cost_gpt_input_usd": float,
+                    "cost_gpt_output_usd": float,
+                    "cost_embedding_usd": float,
+                    "cost_total_usd": float
+                }
             }
         """
         try:
+            from cost_calculator import CostCalculator
+
             # Krok 1: Transkrypcja
-            transcription = self.transcribe_audio(audio_bytes, filename)
+            transcription, audio_duration = self.transcribe_audio(audio_bytes, filename)
 
             # Krok 2: Ekstrakcja struktury
-            structure = self.extract_structure(transcription)
+            structure, gpt_usage = self.extract_structure(transcription)
 
             # Krok 3: Generowanie embedding dla semantycznego wyszukiwania
             # Używamy kombinacji tematu i opisu dla najlepszego dopasowania
             embedding_text = f"{structure['temat']}. {structure['opis']}"
-            embedding = self.get_embedding(embedding_text)
+            embedding, embedding_tokens = self.get_embedding(embedding_text)
+
+            # Krok 4: Obliczanie kosztów
+            cost_whisper = CostCalculator.calculate_whisper_cost(audio_duration)
+            cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
+                gpt_usage['input_tokens'],
+                gpt_usage['output_tokens']
+            )
+            cost_embedding = CostCalculator.calculate_embedding_cost(embedding_tokens)
+            cost_total = CostCalculator.calculate_total_cost(
+                cost_whisper,
+                cost_gpt_in,
+                cost_gpt_out,
+                cost_embedding
+            )
 
             # Połącz wyniki
             return {
@@ -175,7 +227,18 @@ class AIProcessor:
                 "temat": structure["temat"],
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],
-                "embedding": embedding
+                "embedding": embedding,
+                "cost_data": {
+                    "audio_duration_seconds": audio_duration,
+                    "tokens_input": gpt_usage['input_tokens'],
+                    "tokens_output": gpt_usage['output_tokens'],
+                    "tokens_embedding": embedding_tokens,
+                    "cost_whisper_usd": cost_whisper,
+                    "cost_gpt_input_usd": cost_gpt_in,
+                    "cost_gpt_output_usd": cost_gpt_out,
+                    "cost_embedding_usd": cost_embedding,
+                    "cost_total_usd": cost_total
+                }
             }
 
         except Exception as e:
