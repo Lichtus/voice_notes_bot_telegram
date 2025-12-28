@@ -997,10 +997,14 @@ async def generate_pdf(note, notatka_id, context):
     """
 
     # Generuj PDF
-    HTML(string=html_content).write_pdf(
-        pdf_path,
-        stylesheets=[CSS(string=css_content)]
-    )
+    html = HTML(string=html_content)
+    css = CSS(string=css_content)
+
+    # write_pdf() zwraca bytes, zapisz do pliku
+    pdf_bytes = html.write_pdf(stylesheets=[css])
+
+    with open(pdf_path, 'wb') as f:
+        f.write(pdf_bytes)
 
     return pdf_path
 
