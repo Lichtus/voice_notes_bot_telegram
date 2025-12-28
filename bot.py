@@ -538,6 +538,53 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.answer("❌ Brak transkrypcji", show_alert=True)
 
+    elif action.startswith("download_pdf_"):
+        # Generuj i pobierz PDF dla istniejącej notatki
+        notatka_id = int(action.split("_")[2])
+        notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+        if notatka:
+            await query.answer()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📝 Generuję PDF...",
+                parse_mode='Markdown'
+            )
+
+            try:
+                # Generuj PDF z notatki w bazie
+                pdf_path = await generate_pdf_from_db(notatka, context)
+
+                # Wyślij PDF
+                with open(pdf_path, 'rb') as pdf_file:
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=pdf_file,
+                        filename=f"notatka_{notatka.id}.pdf",
+                        caption=f"📄 *PDF Notatki #{notatka.id}*\n📌 {notatka.temat}",
+                        parse_mode='Markdown'
+                    )
+
+                # Usuń tymczasowy plik PDF
+                import os
+                os.remove(pdf_path)
+
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="✅ *PDF wygenerowany!*",
+                    parse_mode='Markdown'
+                )
+
+            except Exception as e:
+                logger.error(f"Błąd generowania PDF: {e}")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"❌ Błąd generowania PDF: {str(e)}",
+                    parse_mode='Markdown'
+                )
+        else:
+            await query.answer("❌ Nie znaleziono notatki", show_alert=True)
+
     elif action.startswith("play_"):
         # Odsłuchaj notatkę
         notatka_id = int(action.split("_")[1])
@@ -733,6 +780,9 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
 
+    # Przycisk do generowania PDF
+    keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
+
     # Wyślij wiadomość
     if keyboard:
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -782,6 +832,9 @@ async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE
     # Przycisk do pełnej transkrypcji (jeśli jest dłuższa niż opis)
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
+
+    # Przycisk do generowania PDF
+    keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
 
     # Wyślij wiadomość
     if keyboard:
@@ -848,6 +901,32 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     await update.message.reply_text(message, parse_mode='Markdown')
+
+
+async def generate_pdf_from_db(notatka, context):
+    """
+    Generuje PDF dla istniejącej notatki z bazy danych
+
+    Args:
+        notatka: Obiekt Notatka z bazy danych
+        context: Context bota
+
+    Returns:
+        str: Ścieżka do wygenerowanego pliku PDF
+    """
+    import json
+
+    # Konwertuj obiekt Notatka do formatu dict (jak w pending_notes)
+    note_dict = {
+        "temat": notatka.temat,
+        "opis": notatka.opis,
+        "transkrypcja": notatka.transkrypcja,
+        "zadania": [z.zadanie for z in notatka.zadania] if notatka.zadania else [],
+        "photos": json.loads(notatka.photo_file_ids) if notatka.photo_file_ids else []
+    }
+
+    # Użyj istniejącej funkcji generate_pdf
+    return await generate_pdf(note_dict, notatka.id, context)
 
 
 async def generate_pdf(note, notatka_id, context):
