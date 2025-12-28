@@ -48,28 +48,29 @@ def notes_list():
     per_page = 20
 
     # Pobierz notatki z bazy
-    with db.Session() as session:
-        query = session.query(db.Notatka).order_by(db.Notatka.data_utworzenia.desc())
+    from database import Notatka
+    query = db.session.query(Notatka).order_by(Notatka.data_utworzenia.desc())
 
-        # Paginacja
-        total_notes = query.count()
-        total_pages = (total_notes + per_page - 1) // per_page
-        notes = query.offset((page - 1) * per_page).limit(per_page).all()
+    # Paginacja
+    total_notes = query.count()
+    total_pages = (total_notes + per_page - 1) // per_page
+    notes = query.offset((page - 1) * per_page).limit(per_page).all()
 
-        # Przygotuj dane notatek
-        notes_data = []
-        for note in notes:
-            zadania_list = json.loads(note.zadania) if note.zadania else []
-            photo_count = len(json.loads(note.photo_file_ids)) if note.photo_file_ids else 0
+    # Przygotuj dane notatek
+    notes_data = []
+    for note in notes:
+        # Notatka.zadania to relacja ORM, nie pole JSON
+        zadania_count = len(note.zadania) if note.zadania else 0
+        photo_count = len(json.loads(note.photo_file_ids)) if note.photo_file_ids else 0
 
-            notes_data.append({
-                'id': note.id,
-                'temat': note.temat,
-                'opis': note.opis[:200] + '...' if len(note.opis) > 200 else note.opis,
-                'data_utworzenia': note.data_utworzenia,
-                'zadania_count': len(zadania_list),
-                'photo_count': photo_count
-            })
+        notes_data.append({
+            'id': note.id,
+            'temat': note.temat,
+            'opis': note.opis[:200] + '...' if len(note.opis) > 200 else note.opis,
+            'data_utworzenia': note.data_utworzenia,
+            'zadania_count': zadania_count,
+            'photo_count': photo_count
+        })
 
     return render_template('notes_list.html',
                          notes=notes_data,
@@ -81,26 +82,26 @@ def notes_list():
 @app.route('/notes/<int:note_id>')
 def note_detail(note_id):
     """Szczegóły pojedynczej notatki"""
-    with db.Session() as session:
-        note = session.query(db.Notatka).filter_by(id=note_id).first()
+    from database import Notatka
+    note = db.session.query(Notatka).filter_by(id=note_id).first()
 
-        if not note:
-            return "Notatka nie znaleziona", 404
+    if not note:
+        return "Notatka nie znaleziona", 404
 
-        # Przygotuj dane
-        zadania_list = json.loads(note.zadania) if note.zadania else []
-        photo_file_ids = json.loads(note.photo_file_ids) if note.photo_file_ids else []
+    # Przygotuj dane - note.zadania to relacja ORM do obiektów Zadanie
+    zadania_list = [z.zadanie for z in note.zadania] if note.zadania else []
+    photo_file_ids = json.loads(note.photo_file_ids) if note.photo_file_ids else []
 
-        note_data = {
-            'id': note.id,
-            'temat': note.temat,
-            'opis': note.opis,
-            'transkrypcja': note.transkrypcja,
-            'data_utworzenia': note.data_utworzenia,
-            'zadania': zadania_list,
-            'photo_file_ids': photo_file_ids,
-            'has_photos': len(photo_file_ids) > 0
-        }
+    note_data = {
+        'id': note.id,
+        'temat': note.temat,
+        'opis': note.opis,
+        'transkrypcja': note.transkrypcja,
+        'data_utworzenia': note.data_utworzenia,
+        'zadania': zadania_list,
+        'photo_file_ids': photo_file_ids,
+        'has_photos': len(photo_file_ids) > 0
+    }
 
     return render_template('note_detail.html', note=note_data)
 
@@ -109,54 +110,54 @@ def note_detail(note_id):
 async def get_photo(note_id, photo_index):
     """Pobierz zdjęcie z Telegram i wyślij jako odpowiedź"""
     import httpx
+    from database import Notatka
 
-    with db.Session() as session:
-        note = session.query(db.Notatka).filter_by(id=note_id).first()
+    note = db.session.query(Notatka).filter_by(id=note_id).first()
 
-        if not note or not note.photo_file_ids:
-            return "Zdjęcie nie znalezione", 404
+    if not note or not note.photo_file_ids:
+        return "Zdjęcie nie znalezione", 404
 
-        photo_file_ids = json.loads(note.photo_file_ids)
+    photo_file_ids = json.loads(note.photo_file_ids)
 
-        if photo_index < 0 or photo_index >= len(photo_file_ids):
-            return "Nieprawidłowy indeks zdjęcia", 404
+    if photo_index < 0 or photo_index >= len(photo_file_ids):
+        return "Nieprawidłowy indeks zdjęcia", 404
 
-        file_id = photo_file_ids[photo_index]
+    file_id = photo_file_ids[photo_index]
 
-        try:
-            # Pobierz informacje o pliku z Telegram
-            async with httpx.AsyncClient() as client:
-                # Pobierz ścieżkę do pliku
-                file_response = await client.get(
-                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile",
-                    params={'file_id': file_id}
-                )
-                file_data = file_response.json()
+    try:
+        # Pobierz informacje o pliku z Telegram
+        async with httpx.AsyncClient() as client:
+            # Pobierz ścieżkę do pliku
+            file_response = await client.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile",
+                params={'file_id': file_id}
+            )
+            file_data = file_response.json()
 
-                if not file_data.get('ok'):
-                    logger.error(f"Błąd pobierania pliku z Telegram: {file_data}")
-                    return "Błąd pobierania zdjęcia", 500
+            if not file_data.get('ok'):
+                logger.error(f"Błąd pobierania pliku z Telegram: {file_data}")
+                return "Błąd pobierania zdjęcia", 500
 
-                file_path = file_data['result']['file_path']
+            file_path = file_data['result']['file_path']
 
-                # Pobierz sam plik
-                photo_response = await client.get(
-                    f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
-                )
+            # Pobierz sam plik
+            photo_response = await client.get(
+                f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+            )
 
-                if photo_response.status_code != 200:
-                    return "Błąd pobierania zdjęcia", 500
+            if photo_response.status_code != 200:
+                return "Błąd pobierania zdjęcia", 500
 
-                # Zwróć zdjęcie jako odpowiedź
-                return Response(
-                    photo_response.content,
-                    mimetype='image/jpeg',
-                    headers={'Cache-Control': 'public, max-age=86400'}
-                )
+            # Zwróć zdjęcie jako odpowiedź
+            return Response(
+                photo_response.content,
+                mimetype='image/jpeg',
+                headers={'Cache-Control': 'public, max-age=86400'}
+            )
 
-        except Exception as e:
-            logger.error(f"Błąd pobierania zdjęcia: {e}")
-            return "Błąd serwera", 500
+    except Exception as e:
+        logger.error(f"Błąd pobierania zdjęcia: {e}")
+        return "Błąd serwera", 500
 
 
 if __name__ == '__main__':
