@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notatki - Voice Notes Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 Moje Notatki</h1>
+            <p class="subtitle">Łącznie: {{ total_notes }} notatek</p>
+        </header>
+
+        <main>
+            {% if notes %}
+                <div class="notes-grid">
+                    {% for note in notes %}
+                    <div class="note-card">
+                        <div class="note-header">
+                            <h2><a href="{{ url_for('note_detail', note_id=note.id) }}">{{ note.temat }}</a></h2>
+                            <span class="note-date">{{ note.data_utworzenia.strftime('%Y-%m-%d %H:%M') }}</span>
+                        </div>
+                        <div class="note-body">
+                            <p class="note-excerpt">{{ note.opis }}</p>
+                        </div>
+                        <div class="note-footer">
+                            {% if note.zadania_count > 0 %}
+                            <span class="badge badge-tasks">📋 {{ note.zadania_count }} zadań</span>
+                            {% endif %}
+                            {% if note.photo_count > 0 %}
+                            <span class="badge badge-photos">📸 {{ note.photo_count }} zdjęć</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Paginacja -->
+                {% if total_pages > 1 %}
+                <div class="pagination">
+                    {% if page > 1 %}
+                    <a href="{{ url_for('notes_list', page=page-1) }}" class="btn">← Poprzednia</a>
+                    {% endif %}
+
+                    <span class="page-info">Strona {{ page }} z {{ total_pages }}</span>
+
+                    {% if page < total_pages %}
+                    <a href="{{ url_for('notes_list', page=page+1) }}" class="btn">Następna →</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            {% else %}
+                <div class="empty-state">
+                    <p>Brak notatek. Wyślij pierwszą notatkę głosową do bota!</p>
+                </div>
+            {% endif %}
+        </main>
+
+        <footer>
+            <p>Voice Notes Bot © 2025</p>
+        </footer>
+    </div>
+</body>
+</html>
