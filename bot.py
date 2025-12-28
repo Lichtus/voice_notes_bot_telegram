@@ -1387,6 +1387,7 @@ def main():
 
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_pdf_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
 
     # Uruchomienie bota
