@@ -29,6 +29,17 @@ class Notatka(Base):
     photo_file_ids = Column(Text)  # JSON array z Telegram file_id zdjęć
     embedding = Column(Text)  # JSON embedding dla semantic search
 
+    # Kolumny kosztów API OpenAI
+    audio_duration_seconds = Column(Integer, nullable=True)  # Długość audio w sekundach
+    tokens_input = Column(Integer, nullable=True)  # Tokeny wejściowe GPT
+    tokens_output = Column(Integer, nullable=True)  # Tokeny wyjściowe GPT
+    tokens_embedding = Column(Integer, nullable=True)  # Tokeny embedding
+    cost_whisper_usd = Column(Text, nullable=True)  # Koszt Whisper w USD (TEXT aby uniknąć problemów z REAL)
+    cost_gpt_input_usd = Column(Text, nullable=True)  # Koszt GPT input w USD
+    cost_gpt_output_usd = Column(Text, nullable=True)  # Koszt GPT output w USD
+    cost_embedding_usd = Column(Text, nullable=True)  # Koszt embedding w USD
+    cost_total_usd = Column(Text, nullable=True)  # Łączny koszt w USD
+
     # Relacja do zadań
     zadania = relationship("Zadanie", back_populates="notatka", cascade="all, delete-orphan")
 
@@ -76,7 +87,7 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -89,6 +100,17 @@ class Database:
             zadania_list: Lista zadań (strings)
             embedding_vector: Wektor embedding dla semantic search (list)
             photo_file_ids: Lista Telegram file_id zdjęć (strings)
+            cost_data: Dict z danymi o kosztach API {
+                "audio_duration_seconds": int,
+                "tokens_input": int,
+                "tokens_output": int,
+                "tokens_embedding": int,
+                "cost_whisper_usd": float,
+                "cost_gpt_input_usd": float,
+                "cost_gpt_output_usd": float,
+                "cost_embedding_usd": float,
+                "cost_total_usd": float
+            }
 
         Returns:
             Notatka: Utworzona notatka
@@ -103,6 +125,21 @@ class Database:
         if photo_file_ids:
             photos_json = json.dumps(photo_file_ids)
 
+        # Przygotuj dane kosztów (konwertuj float na string dla SQLite)
+        cost_kwargs = {}
+        if cost_data:
+            cost_kwargs = {
+                "audio_duration_seconds": cost_data.get("audio_duration_seconds"),
+                "tokens_input": cost_data.get("tokens_input"),
+                "tokens_output": cost_data.get("tokens_output"),
+                "tokens_embedding": cost_data.get("tokens_embedding"),
+                "cost_whisper_usd": str(cost_data.get("cost_whisper_usd", 0)),
+                "cost_gpt_input_usd": str(cost_data.get("cost_gpt_input_usd", 0)),
+                "cost_gpt_output_usd": str(cost_data.get("cost_gpt_output_usd", 0)),
+                "cost_embedding_usd": str(cost_data.get("cost_embedding_usd", 0)),
+                "cost_total_usd": str(cost_data.get("cost_total_usd", 0)),
+            }
+
         notatka = Notatka(
             telegram_user_id=telegram_user_id,
             temat=temat,
@@ -110,7 +147,8 @@ class Database:
             transkrypcja=transkrypcja,
             audio_file_id=audio_file_id,
             photo_file_ids=photos_json,
-            embedding=embedding_json
+            embedding=embedding_json,
+            **cost_kwargs
         )
 
         # Dodaj zadania jeśli są
@@ -247,11 +285,59 @@ class Database:
                 Zadanie.wykonane == True
             ).count()
 
+        # Oblicz koszty API
+        cost_stats = self.get_cost_statistics(telegram_user_id)
+
         return {
             "notatki": liczba_notatek,
             "zadania_wszystkie": liczba_zadan,
             "zadania_wykonane": liczba_wykonanych,
-            "zadania_do_zrobienia": liczba_zadan - liczba_wykonanych
+            "zadania_do_zrobienia": liczba_zadan - liczba_wykonanych,
+            "koszty": cost_stats
+        }
+
+    def get_cost_statistics(self, telegram_user_id):
+        """
+        Oblicza statystyki kosztów API dla użytkownika
+
+        Args:
+            telegram_user_id: ID użytkownika
+
+        Returns:
+            Dict ze statystykami kosztów
+        """
+        notatki = self.session.query(Notatka)\
+            .filter(Notatka.telegram_user_id == telegram_user_id)\
+            .all()
+
+        total_whisper = 0.0
+        total_gpt_input = 0.0
+        total_gpt_output = 0.0
+        total_embedding = 0.0
+        total_cost = 0.0
+        notes_with_costs = 0
+
+        for nota in notatki:
+            if nota.cost_total_usd:
+                notes_with_costs += 1
+                try:
+                    total_whisper += float(nota.cost_whisper_usd or 0)
+                    total_gpt_input += float(nota.cost_gpt_input_usd or 0)
+                    total_gpt_output += float(nota.cost_gpt_output_usd or 0)
+                    total_embedding += float(nota.cost_embedding_usd or 0)
+                    total_cost += float(nota.cost_total_usd or 0)
+                except (ValueError, TypeError):
+                    continue
+
+        avg_cost = total_cost / notes_with_costs if notes_with_costs > 0 else 0
+
+        return {
+            "total_usd": round(total_cost, 4),
+            "total_whisper_usd": round(total_whisper, 4),
+            "total_gpt_usd": round(total_gpt_input + total_gpt_output, 4),
+            "total_embedding_usd": round(total_embedding, 4),
+            "average_per_note_usd": round(avg_cost, 4),
+            "notes_with_costs": notes_with_costs
         }
 
     def semantic_search(self, telegram_user_id, query_embedding, limit=5):

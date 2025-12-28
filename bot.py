@@ -105,9 +105,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(audio_obj.file_id)
         audio_bytes = await file.download_as_bytearray()
 
-        # Transkrypcja dla wykrycia keywordu
+        # Transkrypcja dla wykrycia keywordu (szybka, bez embeddingu)
         await update.message.reply_text("🔄 Transkrybuję audio...")
-        transcription = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        transcription, _ = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
 
         # Loguj transkrypcję dla debugowania
         logger.info(f"Transkrypcja otrzymana: '{transcription}'")
@@ -145,22 +145,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # W przeciwnym razie - normalne przetwarzanie notatki
         await update.message.reply_text("🤖 Analizuję notatkę...")
 
-        # Przetwarzanie przez AI (z transkrypcją już gotową)
-        structure = ai.extract_structure(transcription)
+        # Przetwarzanie przez AI (pełny pipeline z kosztami)
+        result = ai.process_voice_note(bytes(audio_bytes), filename=filename)
 
-        # Generowanie embedding
-        embedding_text = f"{structure['temat']}. {structure['opis']}"
-        embedding = ai.get_embedding(embedding_text)
-
-        # Zapisz do pending
+        # Zapisz do pending (wraz z danymi o kosztach)
         pending_notes[user_id] = {
             "audio_file_id": audio_obj.file_id,
-            "transkrypcja": transcription,
-            "temat": structure["temat"],
-            "opis": structure["opis"],
-            "zadania": structure["zadania"],
-            "embedding": embedding,
-            "photos": []  # Lista file_id zdjęć
+            "transkrypcja": result["transkrypcja"],
+            "temat": result["temat"],
+            "opis": result["opis"],
+            "zadania": result["zadania"],
+            "embedding": result["embedding"],
+            "photos": [],  # Lista file_id zdjęć
+            "cost_data": result["cost_data"]  # Dane o kosztach API
         }
 
         # Pokaż wynik do zatwierdzenia
@@ -400,7 +397,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
-                photo_file_ids=note["photos"] if note["photos"] else None
+                photo_file_ids=note["photos"] if note["photos"] else None,
+                cost_data=note.get("cost_data")  # Dane o kosztach API
             )
 
             await query.edit_message_text("📝 Zapisuję notatkę i generuję PDF...", parse_mode='Markdown')
@@ -453,7 +451,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
-                photo_file_ids=note["photos"] if note["photos"] else None
+                photo_file_ids=note["photos"] if note["photos"] else None,
+                cost_data=note.get("cost_data")  # Dane o kosztach API
             )
             del pending_notes[user_id]
 
@@ -475,7 +474,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
-                photo_file_ids=note["photos"] if note["photos"] else None
+                photo_file_ids=note["photos"] if note["photos"] else None,
+                cost_data=note.get("cost_data")  # Dane o kosztach API
             )
             del pending_notes[user_id]
             await query.edit_message_text("🎉 *Notatka zapisana!*", parse_mode='Markdown')
@@ -792,6 +792,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     statystyki = db.get_statystyki(user_id)
 
+    # Podstawowe statystyki
     message = (
         "📊 *Twoje statystyki:*\n\n"
         f"📝 Notatki: *{statystyki['notatki']}*\n"
@@ -799,6 +800,23 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Wykonane: *{statystyki['zadania_wykonane']}*\n"
         f"⬜ Do zrobienia: *{statystyki['zadania_do_zrobienia']}*\n"
     )
+
+    # Statystyki kosztów API
+    if statystyki.get('koszty'):
+        from cost_calculator import CostCalculator
+        costs = statystyki['koszty']
+
+        if costs['notes_with_costs'] > 0:
+            message += (
+                "\n💰 *Koszty API OpenAI:*\n"
+                "━━━━━━━━━━━━━━━━━\n"
+                f"Łącznie: *{CostCalculator.format_cost_usd(costs['total_usd'])}*\n"
+                f"├─ Whisper: {CostCalculator.format_cost_usd(costs['total_whisper_usd'])}\n"
+                f"├─ GPT-4o-mini: {CostCalculator.format_cost_usd(costs['total_gpt_usd'])}\n"
+                f"└─ Embeddings: {CostCalculator.format_cost_usd(costs['total_embedding_usd'])}\n\n"
+                f"📈 Średnio/notatka: *{CostCalculator.format_cost_usd(costs['average_per_note_usd'])}*\n"
+                f"📊 Notatek z kosztami: {costs['notes_with_costs']}/{statystyki['notatki']}\n"
+            )
 
     await update.message.reply_text(message, parse_mode='Markdown')
 
