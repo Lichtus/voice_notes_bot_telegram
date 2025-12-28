@@ -17,6 +17,7 @@ GPT_MODEL = "gpt-4o-mini"
 
 # Database
 DATABASE_PATH = os.getenv("DATABASE_PATH", "voice_notes.db")
+DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL/Supabase URL (opcjonalne)
 
 # Prompts
 EXTRACTION_PROMPT = """Przeanalizuj poniższą transkrypcję notatki głosowej i wyciągnij:
