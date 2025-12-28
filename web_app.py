@@ -107,9 +107,9 @@ def note_detail(note_id):
 
 
 @app.route('/notes/<int:note_id>/photo/<int:photo_index>')
-async def get_photo(note_id, photo_index):
+def get_photo(note_id, photo_index):
     """Pobierz zdjęcie z Telegram i wyślij jako odpowiedź"""
-    import httpx
+    import requests
     from database import Notatka
 
     note = db.session.query(Notatka).filter_by(id=note_id).first()
@@ -126,34 +126,32 @@ async def get_photo(note_id, photo_index):
 
     try:
         # Pobierz informacje o pliku z Telegram
-        async with httpx.AsyncClient() as client:
-            # Pobierz ścieżkę do pliku
-            file_response = await client.get(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile",
-                params={'file_id': file_id}
-            )
-            file_data = file_response.json()
+        file_response = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile",
+            params={'file_id': file_id}
+        )
+        file_data = file_response.json()
 
-            if not file_data.get('ok'):
-                logger.error(f"Błąd pobierania pliku z Telegram: {file_data}")
-                return "Błąd pobierania zdjęcia", 500
+        if not file_data.get('ok'):
+            logger.error(f"Błąd pobierania pliku z Telegram: {file_data}")
+            return "Błąd pobierania zdjęcia", 500
 
-            file_path = file_data['result']['file_path']
+        file_path = file_data['result']['file_path']
 
-            # Pobierz sam plik
-            photo_response = await client.get(
-                f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
-            )
+        # Pobierz sam plik
+        photo_response = requests.get(
+            f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        )
 
-            if photo_response.status_code != 200:
-                return "Błąd pobierania zdjęcia", 500
+        if photo_response.status_code != 200:
+            return "Błąd pobierania zdjęcia", 500
 
-            # Zwróć zdjęcie jako odpowiedź
-            return Response(
-                photo_response.content,
-                mimetype='image/jpeg',
-                headers={'Cache-Control': 'public, max-age=86400'}
-            )
+        # Zwróć zdjęcie jako odpowiedź
+        return Response(
+            photo_response.content,
+            mimetype='image/jpeg',
+            headers={'Cache-Control': 'public, max-age=86400'}
+        )
 
     except Exception as e:
         logger.error(f"Błąd pobierania zdjęcia: {e}")
