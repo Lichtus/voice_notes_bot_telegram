@@ -1,13 +1,16 @@
 """
-Moduł obsługi bazy danych SQLite dla Voice Notes Bot
+Moduł obsługi bazy danych (SQLite lub PostgreSQL/Supabase) dla Voice Notes Bot
 """
 import json
+import logging
 import numpy as np
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from config import DATABASE_PATH
+from config import DATABASE_PATH, DATABASE_URL
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -51,10 +54,23 @@ class Zadanie(Base):
 
 
 class Database:
-    """Klasa zarządzająca bazą danych"""
+    """Klasa zarządzająca bazą danych (SQLite lub PostgreSQL/Supabase)"""
 
     def __init__(self, db_path=DATABASE_PATH):
-        self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
+        # Jeśli DATABASE_URL jest ustawione - użyj PostgreSQL (Supabase)
+        # Jeśli nie - użyj lokalnego SQLite
+        if DATABASE_URL:
+            # PostgreSQL / Supabase
+            self.engine = create_engine(DATABASE_URL, echo=False)
+            self.db_type = "postgresql"
+            logger.info("💾 Używam bazy danych: PostgreSQL (Supabase)")
+        else:
+            # SQLite (lokalny plik)
+            self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
+            self.db_type = "sqlite"
+            logger.info(f"💾 Używam bazy danych: SQLite ({db_path})")
+
+        # Utwórz tabele jeśli nie istnieją
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
