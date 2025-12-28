@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Stany konwersacji
-WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS = range(3)
+WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS, WAITING_PHOTOS, ASKING_PDF = range(5)
 
 # Globalne instancje
 db = Database()
@@ -159,7 +159,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "temat": structure["temat"],
             "opis": structure["opis"],
             "zadania": structure["zadania"],
-            "embedding": embedding
+            "embedding": embedding,
+            "photos": []  # Lista file_id zdjęć
         }
 
         # Pokaż wynik do zatwierdzenia
@@ -266,15 +267,16 @@ async def show_note_preview(update: Update, user_id: int):
         f"📝 *OPIS:*\n{note['opis']}"
         f"{zadania_text}\n"
         "━━━━━━━━━━━━━━━━\n"
-        "💾 Zapisać tę notatkę?"
+        "📸 Czy chcesz dodać zdjęcia do notatki?"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("✅ Zapisz", callback_data="save"),
-            InlineKeyboardButton("✏️ Edytuj temat", callback_data="edit_temat")
+            InlineKeyboardButton("📸 Dodaj zdjęcia", callback_data="add_photos"),
+            InlineKeyboardButton("⏭️ Pomiń", callback_data="skip_photos")
         ],
         [
+            InlineKeyboardButton("✏️ Edytuj temat", callback_data="edit_temat"),
             InlineKeyboardButton("❌ Anuluj", callback_data="cancel")
         ]
     ]
@@ -287,6 +289,84 @@ async def show_note_preview(update: Update, user_id: int):
     )
 
 
+async def ask_for_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Prosi użytkownika o wysłanie zdjęć"""
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text(
+        "📸 *Dodawanie zdjęć do notatki*\n\n"
+        "Wyślij jedno lub więcej zdjęć.\n"
+        "Gdy skończysz, kliknij przycisk poniżej.\n\n"
+        "💡 Możesz wysłać wiele zdjęć po kolei.",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Zakończ dodawanie zdjęć", callback_data="finish_photos")
+        ]])
+    )
+
+    return WAITING_PHOTOS
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler odbierania zdjęć"""
+    user_id = update.effective_user.id
+
+    if user_id not in pending_notes:
+        await update.message.reply_text("❌ Błąd: Brak notatki w trakcie tworzenia.")
+        return ConversationHandler.END
+
+    # Pobierz największe zdjęcie (najlepsza jakość)
+    photo = update.message.photo[-1]
+
+    # Dodaj file_id do listy zdjęć
+    pending_notes[user_id]["photos"].append(photo.file_id)
+
+    photo_count = len(pending_notes[user_id]["photos"])
+    await update.message.reply_text(
+        f"✅ Zdjęcie dodane! ({photo_count} zdjęć)\n"
+        "Wyślij kolejne lub kliknij 'Zakończ dodawanie zdjęć'."
+    )
+
+    return WAITING_PHOTOS
+
+
+async def ask_for_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pyta użytkownika czy chce wygenerować PDF"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    note = pending_notes.get(user_id)
+
+    if not note:
+        await query.edit_message_text("❌ Błąd: Brak notatki")
+        return ConversationHandler.END
+
+    photo_count = len(note["photos"])
+    photos_info = f"\n📸 Załączonych zdjęć: {photo_count}" if photo_count > 0 else ""
+
+    message = (
+        f"✅ *Notatka gotowa do zapisu!*{photos_info}\n\n"
+        "🎨 Czy chcesz wygenerować sformatowany PDF z notatką?"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📄 Tak, generuj PDF", callback_data="generate_pdf"),
+            InlineKeyboardButton("⏭️ Nie, zapisz bez PDF", callback_data="save_without_pdf")
+        ]
+    ]
+
+    await query.edit_message_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+    return ASKING_PDF
+
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler przycisków inline"""
     query = update.callback_query
@@ -295,8 +375,74 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     action = query.data
 
-    if action == "save":
-        # Zapisz notatkę
+    if action == "add_photos":
+        # Rozpocznij dodawanie zdjęć
+        return await ask_for_photos(update, context)
+
+    elif action == "skip_photos":
+        # Pomiń zdjęcia i przejdź do pytania o PDF
+        return await ask_for_pdf(update, context)
+
+    elif action == "finish_photos":
+        # Zakończ dodawanie zdjęć i przejdź do pytania o PDF
+        return await ask_for_pdf(update, context)
+
+    elif action == "generate_pdf":
+        # Zapisz notatkę i generuj PDF
+        note = pending_notes.get(user_id)
+        if note:
+            # Zapisz do bazy
+            notatka = db.add_notatka(
+                telegram_user_id=user_id,
+                temat=note["temat"],
+                opis=note["opis"],
+                transkrypcja=note["transkrypcja"],
+                audio_file_id=note["audio_file_id"],
+                zadania_list=note["zadania"],
+                embedding_vector=note.get("embedding"),
+                photo_file_ids=note["photos"] if note["photos"] else None
+            )
+
+            await query.edit_message_text("📝 Zapisuję notatkę i generuję PDF...", parse_mode='Markdown')
+
+            # Generuj PDF
+            try:
+                pdf_path = await generate_pdf(note, notatka.id, context)
+
+                # Wyślij PDF
+                with open(pdf_path, 'rb') as pdf_file:
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=pdf_file,
+                        filename=f"notatka_{notatka.id}.pdf",
+                        caption=f"📄 *PDF Notatki #{notatka.id}*\n📌 {note['temat']}",
+                        parse_mode='Markdown'
+                    )
+
+                # Usuń tymczasowy plik PDF
+                import os
+                os.remove(pdf_path)
+
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="🎉 *Notatka zapisana i PDF wygenerowany!*",
+                    parse_mode='Markdown'
+                )
+
+            except Exception as e:
+                logger.error(f"Błąd generowania PDF: {e}")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"✅ Notatka zapisana!\n❌ Błąd generowania PDF: {str(e)}",
+                    parse_mode='Markdown'
+                )
+
+            del pending_notes[user_id]
+
+        return ConversationHandler.END
+
+    elif action == "save_without_pdf":
+        # Zapisz notatkę bez PDF
         note = pending_notes.get(user_id)
         if note:
             db.add_notatka(
@@ -306,7 +452,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 transkrypcja=note["transkrypcja"],
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
-                embedding_vector=note.get("embedding")
+                embedding_vector=note.get("embedding"),
+                photo_file_ids=note["photos"] if note["photos"] else None
+            )
+            del pending_notes[user_id]
+
+            photo_count = len(note["photos"])
+            photos_info = f" z {photo_count} zdjęciami" if photo_count > 0 else ""
+            await query.edit_message_text(f"🎉 *Notatka zapisana{photos_info}!*", parse_mode='Markdown')
+
+        return ConversationHandler.END
+
+    elif action == "save":
+        # Stara akcja zapisu (bez zdjęć i PDF) - zostawiona dla kompatybilności
+        note = pending_notes.get(user_id)
+        if note:
+            db.add_notatka(
+                telegram_user_id=user_id,
+                temat=note["temat"],
+                opis=note["opis"],
+                transkrypcja=note["transkrypcja"],
+                audio_file_id=note["audio_file_id"],
+                zadania_list=note["zadania"],
+                embedding_vector=note.get("embedding"),
+                photo_file_ids=note["photos"] if note["photos"] else None
             )
             del pending_notes[user_id]
             await query.edit_message_text("🎉 *Notatka zapisana!*", parse_mode='Markdown')
@@ -634,6 +803,208 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode='Markdown')
 
 
+async def generate_pdf(note, notatka_id, context):
+    """
+    Generuje sformatowany PDF z notatki
+
+    Args:
+        note: Słownik z danymi notatki (pending_notes)
+        notatka_id: ID notatki w bazie danych
+        context: Context bota (do pobierania zdjęć)
+
+    Returns:
+        str: Ścieżka do wygenerowanego pliku PDF
+    """
+    from weasyprint import HTML, CSS
+    from datetime import datetime
+    import tempfile
+    import base64
+
+    # Utwórz tymczasowy katalog na obrazy
+    temp_dir = tempfile.mkdtemp()
+    pdf_path = f"{temp_dir}/notatka_{notatka_id}.pdf"
+
+    # Pobierz zdjęcia i przekonwertuj na base64
+    photos_html = ""
+    if note["photos"]:
+        photos_html = "<div class='photos'><h2>📸 Zdjęcia</h2>"
+
+        for i, photo_file_id in enumerate(note["photos"], 1):
+            try:
+                # Pobierz zdjęcie z Telegram
+                photo_file = await context.bot.get_file(photo_file_id)
+                photo_bytes = await photo_file.download_as_bytearray()
+
+                # Konwertuj do base64
+                photo_base64 = base64.b64encode(bytes(photo_bytes)).decode('utf-8')
+
+                # Dodaj do HTML jako inline image
+                photos_html += f'<img src="data:image/jpeg;base64,{photo_base64}" alt="Zdjęcie {i}" />'
+
+            except Exception as e:
+                logger.error(f"Błąd pobierania zdjęcia {i}: {e}")
+                photos_html += f'<p class="error">❌ Błąd wczytywania zdjęcia {i}</p>'
+
+        photos_html += "</div>"
+
+    # Formatuj zadania
+    zadania_html = ""
+    if note["zadania"]:
+        zadania_html = "<div class='zadania'><h2>📋 Zadania</h2><ul>"
+        for zadanie in note["zadania"]:
+            zadania_html += f"<li>{zadanie}</li>"
+        zadania_html += "</ul></div>"
+
+    # Szablon HTML
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Notatka #{notatka_id}</title>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📝 Notatka #{notatka_id}</h1>
+            <p class="date">📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <h2>📌 Temat</h2>
+                <p class="temat">{note['temat']}</p>
+            </div>
+
+            <div class="section">
+                <h2>📝 Opis</h2>
+                <p class="opis">{note['opis']}</p>
+            </div>
+
+            {zadania_html}
+
+            {photos_html}
+        </div>
+
+        <div class="footer">
+            <p>Wygenerowano przez Voice Notes Bot</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    # CSS dla ładnego formatowania
+    css_content = """
+    @page {
+        size: A4;
+        margin: 2cm;
+    }
+
+    body {
+        font-family: 'DejaVu Sans', Arial, sans-serif;
+        font-size: 12pt;
+        line-height: 1.6;
+        color: #333;
+    }
+
+    .header {
+        text-align: center;
+        border-bottom: 3px solid #4CAF50;
+        padding-bottom: 20px;
+        margin-bottom: 30px;
+    }
+
+    .header h1 {
+        color: #4CAF50;
+        font-size: 28pt;
+        margin: 0;
+    }
+
+    .date {
+        color: #666;
+        font-size: 11pt;
+        margin-top: 10px;
+    }
+
+    .section {
+        margin-bottom: 30px;
+    }
+
+    h2 {
+        color: #2196F3;
+        font-size: 16pt;
+        border-bottom: 2px solid #E3F2FD;
+        padding-bottom: 5px;
+        margin-bottom: 15px;
+    }
+
+    .temat {
+        font-size: 14pt;
+        font-weight: bold;
+        color: #333;
+    }
+
+    .opis {
+        text-align: justify;
+        white-space: pre-wrap;
+    }
+
+    .zadania ul {
+        list-style-type: none;
+        padding-left: 0;
+    }
+
+    .zadania li {
+        padding: 10px;
+        margin: 5px 0;
+        background-color: #FFF9C4;
+        border-left: 4px solid #FBC02D;
+        border-radius: 4px;
+    }
+
+    .zadania li::before {
+        content: "☐ ";
+        font-weight: bold;
+        color: #FBC02D;
+    }
+
+    .photos {
+        margin-top: 30px;
+    }
+
+    .photos img {
+        max-width: 100%;
+        height: auto;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        page-break-inside: avoid;
+    }
+
+    .error {
+        color: #f44336;
+        font-style: italic;
+    }
+
+    .footer {
+        margin-top: 50px;
+        text-align: center;
+        font-size: 10pt;
+        color: #999;
+        border-top: 1px solid #ddd;
+        padding-top: 20px;
+    }
+    """
+
+    # Generuj PDF
+    HTML(string=html_content).write_pdf(
+        pdf_path,
+        stylesheets=[CSS(string=css_content)]
+    )
+
+    return pdf_path
+
+
 def main():
     """Główna funkcja uruchamiająca bota"""
     # Walidacja konfiguracji
@@ -652,6 +1023,11 @@ def main():
         states={
             WAITING_CONFIRMATION: [CallbackQueryHandler(button_handler)],
             EDITING_TEMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_temat)],
+            WAITING_PHOTOS: [
+                MessageHandler(filters.PHOTO, handle_photo),
+                CallbackQueryHandler(button_handler)
+            ],
+            ASKING_PDF: [CallbackQueryHandler(button_handler)],
         },
         fallbacks=[CommandHandler("start", start)],
     )
