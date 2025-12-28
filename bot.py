@@ -501,11 +501,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if notatka and notatka.transkrypcja:
             await query.answer()
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n\n{notatka.transkrypcja}",
-                parse_mode='Markdown'
-            )
+
+            # Dla długich transkrypcji (>3000 znaków) - wyślij jako plik
+            if len(notatka.transkrypcja) > 3000:
+                import tempfile
+                import os
+
+                # Utwórz tymczasowy plik
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                    f.write(f"Pełna transkrypcja - Notatka #{notatka.id}\n")
+                    f.write(f"Temat: {notatka.temat}\n")
+                    f.write(f"Data: {notatka.data_utworzenia.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write("=" * 50 + "\n\n")
+                    f.write(notatka.transkrypcja)
+                    temp_path = f.name
+
+                # Wyślij plik
+                with open(temp_path, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=f,
+                        filename=f"transkrypcja_{notatka.id}.txt",
+                        caption=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n📌 {notatka.temat}\n\n({len(notatka.transkrypcja)} znaków)",
+                        parse_mode='Markdown'
+                    )
+
+                # Usuń tymczasowy plik
+                os.remove(temp_path)
+            else:
+                # Dla krótkich transkrypcji - wyślij jako wiadomość
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n\n{notatka.transkrypcja}",
+                    parse_mode='Markdown'
+                )
         else:
             await query.answer("❌ Brak transkrypcji", show_alert=True)
 
