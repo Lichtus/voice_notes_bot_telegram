@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Stany konwersacji
-WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS, WAITING_PHOTOS, ASKING_PDF = range(5)
+COLLECTING_AUDIO, WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS, WAITING_PHOTOS, ASKING_PDF = range(6)
 
 # Globalne instancje
 db = Database()
@@ -142,28 +142,36 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         logger.info(f"Pierwsze słowo: '{first_word}' - nie wykryto keywordu wyszukiwania, tworzę notatkę")
 
-        # W przeciwnym razie - normalne przetwarzanie notatki
-        await update.message.reply_text("🤖 Analizuję notatkę...")
+        # Zapisz audio do kolekcji (możliwe wieloczęściowe nagrania)
+        if user_id not in pending_notes:
+            pending_notes[user_id] = {
+                "audio_parts": [],  # Lista (audio_bytes, filename, file_id)
+                "photos": []
+            }
 
-        # Przetwarzanie przez AI (pełny pipeline z kosztami)
-        result = ai.process_voice_note(bytes(audio_bytes), filename=filename)
+        # Dodaj część audio
+        pending_notes[user_id]["audio_parts"].append({
+            "bytes": bytes(audio_bytes),
+            "filename": filename,
+            "file_id": audio_obj.file_id
+        })
 
-        # Zapisz do pending (wraz z danymi o kosztach)
-        pending_notes[user_id] = {
-            "audio_file_id": audio_obj.file_id,
-            "transkrypcja": result["transkrypcja"],
-            "temat": result["temat"],
-            "opis": result["opis"],
-            "zadania": result["zadania"],
-            "embedding": result["embedding"],
-            "photos": [],  # Lista file_id zdjęć
-            "cost_data": result["cost_data"]  # Dane o kosztach API
-        }
+        # Zapytaj czy dodać więcej
+        part_count = len(pending_notes[user_id]["audio_parts"])
+        keyboard = [
+            [InlineKeyboardButton("✅ To wszystko - przetwórz", callback_data="finalize_audio")],
+            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Pokaż wynik do zatwierdzenia
-        await show_note_preview(update, user_id)
+        await update.message.reply_text(
+            f"🎤 *Nagrane części: {part_count}*\n\n"
+            f"Czy to cała notatka, czy chcesz dodać więcej nagrań?",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
-        return WAITING_CONFIRMATION
+        return COLLECTING_AUDIO
 
     except Exception as e:
         logger.error(f"Błąd przetwarzania audio: {e}")
@@ -372,7 +380,144 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     action = query.data
 
-    if action == "add_photos":
+    if action == "finalize_audio":
+        # Przetwórz wszystkie zebrane części audio
+        if user_id not in pending_notes or not pending_notes[user_id]["audio_parts"]:
+            await query.edit_message_text("❌ Błąd: Brak nagrań do przetworzenia")
+            return ConversationHandler.END
+
+        audio_parts = pending_notes[user_id]["audio_parts"]
+        part_count = len(audio_parts)
+
+        await query.edit_message_text(
+            f"🔄 Przetwarzam {part_count} {'część' if part_count == 1 else 'części'} audio...",
+            parse_mode='Markdown'
+        )
+
+        try:
+            # Zbierz wszystkie transkrypcje
+            transcriptions = []
+            total_duration = 0
+
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🔄 Transkrybuję wszystkie części..."
+            )
+
+            for i, part in enumerate(audio_parts, 1):
+                logger.info(f"Transkrybuję część {i}/{part_count}")
+                transcript, duration = ai.transcribe_audio(part["bytes"], filename=part["filename"])
+                transcriptions.append(f"[Część {i}]\n{transcript}")
+                total_duration += duration
+
+            # Połącz transkrypcje
+            combined_transcription = "\n\n".join(transcriptions)
+
+            logger.info(f"Połączona transkrypcja: {len(combined_transcription)} znaków, {total_duration}s")
+
+            # Ekstrakcja struktury z połączonej transkrypcji
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🤖 Analizuję i wyciągam strukturę..."
+            )
+
+            structure, gpt_usage = ai.extract_structure(combined_transcription)
+
+            # Generowanie embedding
+            embedding_text = f"{structure['temat']}. {structure['opis']}"
+            embedding, embedding_tokens = ai.get_embedding(embedding_text)
+
+            # Obliczanie kosztów
+            from cost_calculator import CostCalculator
+
+            cost_whisper = CostCalculator.calculate_whisper_cost(total_duration)
+            cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
+                gpt_usage['input_tokens'],
+                gpt_usage['output_tokens']
+            )
+            cost_embedding = CostCalculator.calculate_embedding_cost(embedding_tokens)
+            cost_total = CostCalculator.calculate_total_cost(
+                cost_whisper,
+                cost_gpt_in,
+                cost_gpt_out,
+                cost_embedding
+            )
+
+            # Zapisz wyniki w pending_notes (nadpisz strukturę)
+            # Użyj pierwszego audio jako główne (do odsłuchania)
+            pending_notes[user_id]["audio_file_id"] = audio_parts[0]["file_id"]
+            pending_notes[user_id]["transkrypcja"] = combined_transcription
+            pending_notes[user_id]["temat"] = structure["temat"]
+            pending_notes[user_id]["opis"] = structure["opis"]
+            pending_notes[user_id]["zadania"] = structure["zadania"]
+            pending_notes[user_id]["embedding"] = embedding
+            pending_notes[user_id]["cost_data"] = {
+                "audio_duration_seconds": total_duration,
+                "tokens_input": gpt_usage['input_tokens'],
+                "tokens_output": gpt_usage['output_tokens'],
+                "tokens_embedding": embedding_tokens,
+                "cost_whisper_usd": cost_whisper,
+                "cost_gpt_input_usd": cost_gpt_in,
+                "cost_gpt_output_usd": cost_gpt_out,
+                "cost_embedding_usd": cost_embedding,
+                "cost_total_usd": cost_total
+            }
+
+            # Wyświetl koszt
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"💰 Koszt przetworzenia: {CostCalculator.format_cost_usd(cost_total)}",
+                parse_mode='Markdown'
+            )
+
+            # Pokaż podgląd i przejdź do WAITING_CONFIRMATION
+            # Musimy stworzyć "fake" update z message
+            class FakeMessage:
+                def __init__(self, chat_id):
+                    self.chat_id = chat_id
+                    self.chat = self
+                    self.id = chat_id
+
+                async def reply_text(self, text, **kwargs):
+                    return await context.bot.send_message(
+                        chat_id=self.chat_id,
+                        text=text,
+                        **kwargs
+                    )
+
+            fake_update = type('obj', (object,), {
+                'message': FakeMessage(update.effective_chat.id),
+                'effective_user': update.effective_user
+            })()
+
+            await show_note_preview(fake_update, user_id)
+
+            return WAITING_CONFIRMATION
+
+        except Exception as e:
+            logger.error(f"Błąd przetwarzania wieloczęściowego audio: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ Wystąpił błąd podczas przetwarzania:\n`{str(e)}`",
+                parse_mode='Markdown'
+            )
+
+            # Wyczyść pending_notes
+            if user_id in pending_notes:
+                del pending_notes[user_id]
+
+            return ConversationHandler.END
+
+    elif action == "more_audio":
+        # Poczekaj na więcej nagrań
+        await query.edit_message_text(
+            "🎤 *Czekam na kolejne nagranie...*\n\n"
+            "Wyślij następną część audio lub plik audio.",
+            parse_mode='Markdown'
+        )
+        return COLLECTING_AUDIO
+
+    elif action == "add_photos":
         # Rozpocznij dodawanie zdjęć
         return await ask_for_photos(update, context)
 
@@ -597,6 +742,69 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_full_note_from_callback(query, context, notatka)
         else:
             await query.answer("❌ Nie znaleziono notatki", show_alert=True)
+
+
+async def handle_additional_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler dla dodatkowych nagrań w trybie COLLECTING_AUDIO"""
+    user_id = update.effective_user.id
+
+    # Pobierz plik audio (voice message lub audio file)
+    if update.message.voice:
+        audio_obj = update.message.voice
+        file_type = "voice"
+        filename = "voice.ogg"
+    elif update.message.audio:
+        audio_obj = update.message.audio
+        file_type = "audio"
+        filename = update.message.audio.file_name or f"audio.{update.message.audio.mime_type.split('/')[-1]}"
+    else:
+        await update.message.reply_text("❌ Błąd: Brak pliku audio")
+        return COLLECTING_AUDIO
+
+    await update.message.reply_text("🎤 Plik audio otrzymany!")
+
+    try:
+        # Pobierz plik
+        file = await context.bot.get_file(audio_obj.file_id)
+        audio_bytes = await file.download_as_bytearray()
+
+        # Dodaj do kolekcji
+        if user_id not in pending_notes:
+            pending_notes[user_id] = {
+                "audio_parts": [],
+                "photos": []
+            }
+
+        pending_notes[user_id]["audio_parts"].append({
+            "bytes": bytes(audio_bytes),
+            "filename": filename,
+            "file_id": audio_obj.file_id
+        })
+
+        # Zapytaj czy dodać więcej
+        part_count = len(pending_notes[user_id]["audio_parts"])
+        keyboard = [
+            [InlineKeyboardButton("✅ To wszystko - przetwórz", callback_data="finalize_audio")],
+            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"🎤 *Nagrane części: {part_count}*\n\n"
+            f"Czy to cała notatka, czy chcesz dodać więcej nagrań?",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+
+        return COLLECTING_AUDIO
+
+    except Exception as e:
+        logger.error(f"Błąd dodawania audio: {e}")
+        await update.message.reply_text(
+            f"❌ Wystąpił błąd podczas dodawania:\n`{str(e)}`",
+            parse_mode='Markdown'
+        )
+        return COLLECTING_AUDIO
 
 
 async def edit_temat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1151,6 +1359,10 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.VOICE | filters.AUDIO, handle_voice)],
         states={
+            COLLECTING_AUDIO: [
+                MessageHandler(filters.VOICE | filters.AUDIO, handle_additional_voice),
+                CallbackQueryHandler(button_handler)
+            ],
             WAITING_CONFIRMATION: [CallbackQueryHandler(button_handler)],
             EDITING_TEMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_temat)],
             WAITING_PHOTOS: [
