@@ -162,6 +162,112 @@ class Database:
         self.session.commit()
         return notatka
 
+    def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
+                       zadania_list=None, embedding_vector=None, additional_cost_data=None):
+        """
+        Aktualizuje istniejącą notatkę
+
+        Args:
+            notatka_id: ID notatki do aktualizacji
+            telegram_user_id: ID użytkownika (weryfikacja)
+            temat: Nowy temat (jeśli None - bez zmian)
+            opis: Nowy opis (jeśli None - bez zmian)
+            transkrypcja: Nowa transkrypcja (jeśli None - bez zmian)
+            zadania_list: Nowa lista zadań - ZASTĘPUJE stare zadania
+            embedding_vector: Nowy wektor embedding
+            additional_cost_data: Dict z dodatkowymi kosztami do dodania {
+                "audio_duration_seconds": int,  # będzie dodane do obecnego
+                "tokens_input": int,  # będzie dodane
+                "tokens_output": int,  # będzie dodane
+                "tokens_embedding": int,  # będzie dodane
+                "cost_whisper_usd": float,  # będzie dodane
+                "cost_gpt_input_usd": float,  # będzie dodane
+                "cost_gpt_output_usd": float,  # będzie dodane
+                "cost_embedding_usd": float,  # będzie dodane
+                "cost_total_usd": float  # będzie przeliczone
+            }
+
+        Returns:
+            Notatka: Zaktualizowana notatka lub None jeśli nie znaleziono
+        """
+        notatka = self.get_notatka_by_id(notatka_id, telegram_user_id)
+
+        if not notatka:
+            return None
+
+        # Aktualizuj podstawowe pola
+        if temat is not None:
+            notatka.temat = temat
+        if opis is not None:
+            notatka.opis = opis
+        if transkrypcja is not None:
+            notatka.transkrypcja = transkrypcja
+
+        # Aktualizuj embedding
+        if embedding_vector is not None:
+            notatka.embedding = json.dumps(embedding_vector)
+
+        # Aktualizuj zadania - ZASTĘPUJEMY wszystkie zadania
+        if zadania_list is not None:
+            # Usuń stare zadania
+            for zadanie in notatka.zadania:
+                self.session.delete(zadanie)
+
+            # Dodaj nowe zadania
+            for zadanie_text in zadania_list:
+                if zadanie_text.strip():
+                    zadanie = Zadanie(zadanie=zadanie_text.strip())
+                    notatka.zadania.append(zadanie)
+
+        # Aktualizuj koszty - DODAJEMY do istniejących
+        if additional_cost_data:
+            # Dodaj czas audio
+            if additional_cost_data.get("audio_duration_seconds"):
+                current_duration = notatka.audio_duration_seconds or 0
+                notatka.audio_duration_seconds = current_duration + additional_cost_data["audio_duration_seconds"]
+
+            # Dodaj tokeny
+            if additional_cost_data.get("tokens_input"):
+                current_tokens = notatka.tokens_input or 0
+                notatka.tokens_input = current_tokens + additional_cost_data["tokens_input"]
+
+            if additional_cost_data.get("tokens_output"):
+                current_tokens = notatka.tokens_output or 0
+                notatka.tokens_output = current_tokens + additional_cost_data["tokens_output"]
+
+            if additional_cost_data.get("tokens_embedding"):
+                current_tokens = notatka.tokens_embedding or 0
+                notatka.tokens_embedding = current_tokens + additional_cost_data["tokens_embedding"]
+
+            # Dodaj koszty
+            def add_cost(current_str, additional):
+                current = float(current_str) if current_str else 0.0
+                return str(round(current + additional, 6))
+
+            if additional_cost_data.get("cost_whisper_usd") is not None:
+                notatka.cost_whisper_usd = add_cost(notatka.cost_whisper_usd, additional_cost_data["cost_whisper_usd"])
+
+            if additional_cost_data.get("cost_gpt_input_usd") is not None:
+                notatka.cost_gpt_input_usd = add_cost(notatka.cost_gpt_input_usd, additional_cost_data["cost_gpt_input_usd"])
+
+            if additional_cost_data.get("cost_gpt_output_usd") is not None:
+                notatka.cost_gpt_output_usd = add_cost(notatka.cost_gpt_output_usd, additional_cost_data["cost_gpt_output_usd"])
+
+            if additional_cost_data.get("cost_embedding_usd") is not None:
+                notatka.cost_embedding_usd = add_cost(notatka.cost_embedding_usd, additional_cost_data["cost_embedding_usd"])
+
+            # Przelicz całkowity koszt
+            total = (
+                (float(notatka.cost_whisper_usd) if notatka.cost_whisper_usd else 0.0) +
+                (float(notatka.cost_gpt_input_usd) if notatka.cost_gpt_input_usd else 0.0) +
+                (float(notatka.cost_gpt_output_usd) if notatka.cost_gpt_output_usd else 0.0) +
+                (float(notatka.cost_embedding_usd) if notatka.cost_embedding_usd else 0.0)
+            )
+            notatka.cost_total_usd = str(round(total, 6))
+
+        self.session.commit()
+        return notatka
+
     def get_notatka_by_id(self, notatka_id, telegram_user_id):
         """
         Pobiera notatkę po ID (z weryfikacją użytkownika)

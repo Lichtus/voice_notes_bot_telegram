@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Stany konwersacji
-COLLECTING_AUDIO, WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS, WAITING_PHOTOS, ASKING_PDF = range(6)
+COLLECTING_AUDIO, WAITING_CONFIRMATION, EDITING_TEMAT, EDITING_OPIS, WAITING_PHOTOS, ASKING_PDF, EDITING_NOTE = range(7)
 
 # Globalne instancje
 db = Database()
@@ -35,6 +35,9 @@ ai = AIProcessor()
 
 # Tymczasowe dane notatki (w sesji użytkownika)
 pending_notes = {}
+
+# Przechowuje ID notatki podczas edycji
+editing_note_id = {}
 
 
 def check_user_allowed(func):
@@ -730,6 +733,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.answer("❌ Nie znaleziono notatki", show_alert=True)
 
+    elif action.startswith("edit_note_"):
+        # Uzupełnij notatkę nagraniem
+        notatka_id = int(action.split("_")[2])
+        notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+        if notatka:
+            await query.answer()
+            # Zapisz ID notatki do edycji
+            editing_note_id[user_id] = notatka_id
+
+            await query.edit_message_text(
+                f"🎤 *Uzupełnianie notatki #{notatka_id}*\n\n"
+                f"📌 Temat: {notatka.temat}\n\n"
+                f"Wyślij nagranie głosowe lub plik audio, który chcesz dodać do notatki.\n"
+                f"Nowe nagranie zostanie transkrybowane i połączone z istniejącą notatką.",
+                parse_mode='Markdown'
+            )
+            return EDITING_NOTE
+        else:
+            await query.answer("❌ Nie znaleziono notatki", show_alert=True)
+
     elif action.startswith("play_"):
         # Odsłuchaj notatkę
         notatka_id = int(action.split("_")[1])
@@ -805,6 +829,124 @@ async def handle_additional_voice(update: Update, context: ContextTypes.DEFAULT_
             parse_mode='Markdown'
         )
         return COLLECTING_AUDIO
+
+
+async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler uzupełniania notatki nagraniem"""
+    user_id = update.effective_user.id
+
+    # Sprawdź czy mamy zapisane ID notatki
+    if user_id not in editing_note_id:
+        await update.message.reply_text("❌ Błąd: Brak notatki do edycji")
+        return ConversationHandler.END
+
+    notatka_id = editing_note_id[user_id]
+    notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+    if not notatka:
+        await update.message.reply_text("❌ Nie znaleziono notatki")
+        del editing_note_id[user_id]
+        return ConversationHandler.END
+
+    # Pobierz plik audio
+    if update.message.voice:
+        audio_obj = update.message.voice
+        filename = "voice.ogg"
+    elif update.message.audio:
+        audio_obj = update.message.audio
+        filename = update.message.audio.file_name or f"audio.{update.message.audio.mime_type.split('/')[-1]}"
+    else:
+        await update.message.reply_text("❌ Błąd: Brak pliku audio")
+        return EDITING_NOTE
+
+    await update.message.reply_text("🔄 Przetwarzam nagranie...")
+
+    try:
+        # Pobierz plik
+        file = await context.bot.get_file(audio_obj.file_id)
+        audio_bytes = await file.download_as_bytearray()
+
+        # Transkrybuj nowe nagranie
+        await update.message.reply_text("🔄 Transkrybuję nowe nagranie...")
+        new_transcript, audio_duration = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+
+        # Połącz z poprzednią transkrypcją
+        old_transcript = notatka.transkrypcja or ""
+        combined_transcript = old_transcript + f"\n\n[Uzupełnienie]\n{new_transcript}"
+
+        # Ponowna analiza struktury
+        await update.message.reply_text("🤖 Analizuję zaktualizowaną treść...")
+        structure, gpt_usage = ai.extract_structure(combined_transcript)
+
+        # Generuj nowy embedding
+        embedding_text = f"{structure['temat']}. {structure['opis']}"
+        embedding, embedding_tokens = ai.get_embedding(embedding_text)
+
+        # Oblicz dodatkowe koszty
+        from cost_calculator import CostCalculator
+
+        cost_whisper = CostCalculator.calculate_whisper_cost(audio_duration)
+        cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
+            gpt_usage['input_tokens'],
+            gpt_usage['output_tokens']
+        )
+        cost_embedding = CostCalculator.calculate_embedding_cost(embedding_tokens)
+
+        additional_costs = {
+            "audio_duration_seconds": audio_duration,
+            "tokens_input": gpt_usage['input_tokens'],
+            "tokens_output": gpt_usage['output_tokens'],
+            "tokens_embedding": embedding_tokens,
+            "cost_whisper_usd": cost_whisper,
+            "cost_gpt_input_usd": cost_gpt_in,
+            "cost_gpt_output_usd": cost_gpt_out,
+            "cost_embedding_usd": cost_embedding
+        }
+
+        # Aktualizuj notatkę w bazie
+        updated_notatka = db.update_notatka(
+            notatka_id=notatka_id,
+            telegram_user_id=user_id,
+            temat=structure["temat"],
+            opis=structure["opis"],
+            transkrypcja=combined_transcript,
+            zadania_list=structure["zadania"],
+            embedding_vector=embedding,
+            additional_cost_data=additional_costs
+        )
+
+        if updated_notatka:
+            # Pokaż koszt
+            cost_total = CostCalculator.calculate_total_cost(
+                cost_whisper, cost_gpt_in, cost_gpt_out, cost_embedding
+            )
+
+            await update.message.reply_text(
+                f"✅ *Notatka #{notatka_id} zaktualizowana!*\n\n"
+                f"📌 Nowy temat: {structure['temat']}\n"
+                f"💰 Koszt uzupełnienia: {CostCalculator.format_cost_usd(cost_total)}",
+                parse_mode='Markdown'
+            )
+
+            # Wyślij pełną zaktualizowaną notatkę
+            await send_full_note(update, context, updated_notatka)
+        else:
+            await update.message.reply_text("❌ Błąd aktualizacji notatki")
+
+        # Wyczyść stan edycji
+        del editing_note_id[user_id]
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Błąd uzupełniania notatki: {e}")
+        await update.message.reply_text(
+            f"❌ Wystąpił błąd podczas uzupełniania:\n`{str(e)}`",
+            parse_mode='Markdown'
+        )
+        # Wyczyść stan edycji
+        if user_id in editing_note_id:
+            del editing_note_id[user_id]
+        return ConversationHandler.END
 
 
 async def edit_temat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -988,6 +1130,9 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
 
+    # Przycisk do uzupełnienia notatki nagraniem
+    keyboard.append([InlineKeyboardButton("🎤 Uzupełnij nagraniem", callback_data=f"edit_note_{notatka.id}")])
+
     # Przycisk do generowania PDF
     keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
 
@@ -1040,6 +1185,9 @@ async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE
     # Przycisk do pełnej transkrypcji (jeśli jest dłuższa niż opis)
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
+
+    # Przycisk do uzupełnienia notatki nagraniem
+    keyboard.append([InlineKeyboardButton("🎤 Uzupełnij nagraniem", callback_data=f"edit_note_{notatka.id}")])
 
     # Przycisk do generowania PDF
     keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
@@ -1370,6 +1518,7 @@ def main():
                 CallbackQueryHandler(button_handler)
             ],
             ASKING_PDF: [CallbackQueryHandler(button_handler)],
+            EDITING_NOTE: [MessageHandler(filters.VOICE | filters.AUDIO, edit_note_audio)],
         },
         fallbacks=[CommandHandler("start", start)],
     )
@@ -1388,6 +1537,7 @@ def main():
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_pdf_"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^edit_note_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
 
     # Uruchomienie bota
