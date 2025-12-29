@@ -283,10 +283,14 @@ def notes_list():
     search = request.args.get('search', '', type=str).strip()
     date_filter = request.args.get('date_filter', 'all', type=str)
     tasks_filter = request.args.get('tasks_filter', 'all', type=str)
+    category_filter = request.args.get('category_filter', 'all', type=str)
     sort_by = request.args.get('sort', 'date_desc', type=str)
 
-    # Buduj zapytanie - TYLKO notatki zalogowanego użytkownika
-    query = db.session.query(Notatka).filter(Notatka.telegram_user_id == telegram_user_id)
+    # Buduj zapytanie - TYLKO aktywne notatki zalogowanego użytkownika (bez usuniętych)
+    query = db.session.query(Notatka).filter(
+        Notatka.telegram_user_id == telegram_user_id,
+        Notatka.deleted_at.is_(None)
+    )
 
     # Wyszukiwanie
     if search:
@@ -326,6 +330,10 @@ def notes_list():
     # Grupuj po notatce (dla JOIN z zadaniami)
     if tasks_filter in ['with_tasks', 'with_incomplete']:
         query = query.group_by(Notatka.id)
+
+    # Filtrowanie po kategorii
+    if category_filter != 'all':
+        query = query.filter(Notatka.kategoria == category_filter)
 
     # Sortowanie
     if sort_by == 'date_desc':
@@ -379,6 +387,7 @@ def notes_list():
             'data_utworzenia': note.data_utworzenia,
             'zadania_count': zadania_count,
             'photo_count': photo_count,
+            'kategoria': note.kategoria,
             'is_edited': is_edited,
             'edit_date': edit_date
         })
@@ -391,6 +400,7 @@ def notes_list():
                          search=search,
                          date_filter=date_filter,
                          tasks_filter=tasks_filter,
+                         category_filter=category_filter,
                          sort_by=sort_by,
                          user=session)
 
@@ -436,11 +446,56 @@ def note_detail(note_id):
         'zadania': zadania_list,
         'photo_file_ids': photo_file_ids,
         'has_photos': len(photo_file_ids) > 0,
+        'kategoria': note.kategoria,
         'is_edited': is_edited,
         'edit_date': edit_date
     }
 
     return render_template('note_detail.html', note=note_data, user=session)
+
+
+@app.route('/notes/<int:note_id>/delete', methods=['POST'])
+@login_required
+def delete_note(note_id):
+    """Usuwa notatkę (soft delete)"""
+    from database import Database
+
+    telegram_user_id = session.get('telegram_user_id')
+    db_handler = Database()
+
+    # Soft delete notatki
+    success = db_handler.soft_delete_notatka(note_id, telegram_user_id)
+
+    if success:
+        return redirect(url_for('notes_list'))
+    else:
+        return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
+
+
+@app.route('/notes/<int:note_id>/update-category', methods=['POST'])
+@login_required
+def update_note_category(note_id):
+    """Aktualizuje kategorię notatki"""
+    from database import Database
+
+    telegram_user_id = session.get('telegram_user_id')
+    new_category = request.form.get('kategoria')
+
+    # Walidacja kategorii
+    if new_category not in ['Praca', 'Dom', 'Inne']:
+        return "Nieprawidłowa kategoria", 400
+
+    db_handler = Database()
+    note = db_handler.update_notatka(
+        note_id,
+        telegram_user_id,
+        kategoria=new_category
+    )
+
+    if note:
+        return redirect(url_for('note_detail', note_id=note_id))
+    else:
+        return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
 
 
 def generate_email_html(note, base_url=None):

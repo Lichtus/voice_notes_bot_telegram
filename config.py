@@ -24,6 +24,10 @@ EXTRACTION_PROMPT = """Przeanalizuj poniższą transkrypcję notatki głosowej i
 1. TEMAT (krótki tytuł, max 100 znaków)
 2. OPIS (szczegółowy opis tego co użytkownik powiedział)
 3. ZADANIA (lista konkretnych akcji do wykonania, jeśli są w notatce)
+4. KATEGORIA (oceń do jakiej kategorii należy notatka):
+   - "Praca" - sprawy zawodowe, projekty, spotkania służbowe, zadania biznesowe
+   - "Dom" - sprawy domowe, rodzinne, osobiste, zakupy, hobby
+   - "Inne" - wszystko inne lub gdy kategoria nie jest jasna
 
 Transkrypcja:
 "{transcription}"
@@ -32,10 +36,12 @@ Odpowiedz TYLKO w formacie JSON, bez dodatkowych komentarzy:
 {{
   "temat": "krótki tytuł notatki",
   "opis": "szczegółowy opis",
-  "zadania": ["zadanie 1", "zadanie 2"]
+  "zadania": ["zadanie 1", "zadanie 2"],
+  "kategoria": "Praca/Dom/Inne"
 }}
 
 Jeśli nie ma zadań w notatce, zwróć pustą listę: "zadania": []
+Kategoria musi być jedną z trzech wartości: "Praca", "Dom", "Inne"
 """
 
 def validate_config():
