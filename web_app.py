@@ -887,6 +887,13 @@ def get_photo(note_id, photo_index):
         return "Błąd serwera", 500
 
 
+@app.route('/statistics')
+@login_required
+def statistics():
+    """Strona statystyk - MOCKUP (do wdrożenia z prawdziwymi danymi)"""
+    return render_template('statistics.html', user=session)
+
+
 if __name__ == '__main__':
     logger.info("🌐 Uruchamianie aplikacji webowej...")
     app.run(host='0.0.0.0', port=5000, debug=True)
