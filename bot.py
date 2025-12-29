@@ -870,13 +870,19 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Transkrybuję nowe nagranie...")
         new_transcript, audio_duration = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
 
-        # Połącz z poprzednią transkrypcją
+        # Dodaj timestamp edycji
+        edit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Połącz z poprzednią transkrypcją z adnotacją
         old_transcript = notatka.transkrypcja or ""
-        combined_transcript = old_transcript + f"\n\n[Uzupełnienie]\n{new_transcript}"
+        combined_transcript = old_transcript + f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n📝 Edit - {edit_timestamp} - uzupełnienie\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n{new_transcript}"
 
         # Ponowna analiza struktury
         await update.message.reply_text("🤖 Analizuję zaktualizowaną treść...")
         structure, gpt_usage = ai.extract_structure(combined_transcript)
+
+        # Dodaj informację o edycji do opisu
+        updated_opis = structure["opis"] + f"\n\n---\n✏️ *Edytowano:* {edit_timestamp}"
 
         # Generuj nowy embedding
         embedding_text = f"{structure['temat']}. {structure['opis']}"
@@ -908,7 +914,7 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             notatka_id=notatka_id,
             telegram_user_id=user_id,
             temat=structure["temat"],
-            opis=structure["opis"],
+            opis=updated_opis,  # Opis z informacją o edycji
             transkrypcja=combined_transcript,
             zadania_list=structure["zadania"],
             embedding_vector=embedding,
@@ -923,7 +929,8 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await update.message.reply_text(
                 f"✅ *Notatka #{notatka_id} zaktualizowana!*\n\n"
-                f"📌 Nowy temat: {structure['temat']}\n"
+                f"📌 Temat: {structure['temat']}\n"
+                f"✏️ Edytowano: {edit_timestamp}\n"
                 f"💰 Koszt uzupełnienia: {CostCalculator.format_cost_usd(cost_total)}",
                 parse_mode='Markdown'
             )
@@ -1518,6 +1525,14 @@ def main():
                 CallbackQueryHandler(button_handler)
             ],
             ASKING_PDF: [CallbackQueryHandler(button_handler)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
+
+    # Conversation handler dla edycji notatek nagraniem
+    edit_note_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_handler, pattern="^edit_note_")],
+        states={
             EDITING_NOTE: [MessageHandler(filters.VOICE | filters.AUDIO, edit_note_audio)],
         },
         fallbacks=[CommandHandler("start", start)],
@@ -1526,6 +1541,7 @@ def main():
     # Dodanie handlerów
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
+    application.add_handler(edit_note_conv_handler)  # Handler edycji notatek
     application.add_handler(CommandHandler("lista", lista))
     application.add_handler(CommandHandler("notatka", notatka))
     application.add_handler(CommandHandler("ostatnia", ostatnia))
@@ -1537,7 +1553,6 @@ def main():
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_pdf_"))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern="^edit_note_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
 
     # Uruchomienie bota
