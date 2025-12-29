@@ -237,18 +237,33 @@
     <script>
         // Zapisz pozycję scrollowania przed submitem formularza
         function saveScrollPosition() {
-            sessionStorage.setItem('tasksScrollPosition', window.scrollY);
+            const scrollY = window.scrollY || window.pageYOffset;
+            sessionStorage.setItem('tasksScrollPosition', scrollY.toString());
         }
 
-        // Przywróć pozycję scrollowania po załadowaniu strony
-        window.addEventListener('load', function() {
+        // Przywróć pozycję scrollowania - wykonaj jak najszybciej
+        (function() {
             const scrollPosition = sessionStorage.getItem('tasksScrollPosition');
             if (scrollPosition !== null) {
-                window.scrollTo(0, parseInt(scrollPosition));
-                // Wyczyść zapisaną pozycję
-                sessionStorage.removeItem('tasksScrollPosition');
+                // Przywróć scroll natychmiast
+                const scrollY = parseInt(scrollPosition);
+
+                // Spróbuj od razu
+                window.scrollTo(0, scrollY);
+
+                // I ponownie po załadowaniu DOM (dla pewności)
+                document.addEventListener('DOMContentLoaded', function() {
+                    window.scrollTo(0, scrollY);
+
+                    // I jeszcze raz z małym opóźnieniem (dla obrazków itp.)
+                    setTimeout(function() {
+                        window.scrollTo(0, scrollY);
+                        // Wyczyść zapisaną pozycję dopiero teraz
+                        sessionStorage.removeItem('tasksScrollPosition');
+                    }, 100);
+                });
             }
-        });
+        })();
     </script>
 </body>
 </html>
