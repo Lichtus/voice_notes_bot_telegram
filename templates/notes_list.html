@@ -52,6 +52,16 @@
                     </select>
                 </div>
 
+                <!-- Filtr kategorii -->
+                <div class="filter-group">
+                    <select name="category_filter" class="filter-select">
+                        <option value="all" {% if category_filter == 'all' %}selected{% endif %}>🏷️ Wszystkie kategorie</option>
+                        <option value="Praca" {% if category_filter == 'Praca' %}selected{% endif %}>💼 Praca</option>
+                        <option value="Dom" {% if category_filter == 'Dom' %}selected{% endif %}>🏠 Dom</option>
+                        <option value="Inne" {% if category_filter == 'Inne' %}selected{% endif %}>📌 Inne</option>
+                    </select>
+                </div>
+
                 <!-- Sortowanie -->
                 <div class="filter-group">
                     <select name="sort" class="filter-select">
@@ -90,6 +100,11 @@
                             <p class="note-excerpt">{{ note.opis }}</p>
                         </div>
                         <div class="note-footer">
+                            {% if note.kategoria %}
+                            <span class="badge badge-category badge-{{ note.kategoria.lower() }}">
+                                {% if note.kategoria == 'Praca' %}💼{% elif note.kategoria == 'Dom' %}🏠{% else %}📌{% endif %} {{ note.kategoria }}
+                            </span>
+                            {% endif %}
                             {% if note.zadania_count > 0 %}
                             <span class="badge badge-tasks">📋 {{ note.zadania_count }} zadań</span>
                             {% endif %}
@@ -105,13 +120,13 @@
                 {% if total_pages > 1 %}
                 <div class="pagination">
                     {% if page > 1 %}
-                    <a href="{{ url_for('notes_list', page=page-1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, sort=sort_by) }}" class="btn">← Poprzednia</a>
+                    <a href="{{ url_for('notes_list', page=page-1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, category_filter=category_filter, sort=sort_by) }}" class="btn">← Poprzednia</a>
                     {% endif %}
 
                     <span class="page-info">Strona {{ page }} z {{ total_pages }}</span>
 
                     {% if page < total_pages %}
-                    <a href="{{ url_for('notes_list', page=page+1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, sort=sort_by) }}" class="btn">Następna →</a>
+                    <a href="{{ url_for('notes_list', page=page+1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, category_filter=category_filter, sort=sort_by) }}" class="btn">Następna →</a>
                     {% endif %}
                 </div>
                 {% endif %}
