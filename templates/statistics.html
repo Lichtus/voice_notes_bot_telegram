@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statystyki - Voice Notes Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- User Header -->
+        <div class="user-header">
+            <div class="user-info">
+                <span class="user-name">👤 Jan Kowalski (@jkowalski)</span>
+            </div>
+            <div class="user-actions">
+                <a href="{{ url_for('notes_list') }}" class="btn">📝 Notatki</a>
+                <a href="{{ url_for('tasks_list') }}" class="btn">📋 Zadania</a>
+                <a href="{{ url_for('logout') }}" class="btn btn-logout">🚪 Wyloguj</a>
+            </div>
+        </div>
+
+        <header>
+            <div class="header-top">
+                <a href="{{ url_for('notes_list') }}" class="back-link">← Powrót do listy</a>
+            </div>
+            <h1>📊 Statystyki i Analiza</h1>
+            <p class="subtitle">Profesjonalna analiza wykorzystania systemu notatek</p>
+        </header>
+
+        <main class="statistics-dashboard">
+            <!-- Sekcja 1: Podsumowanie -->
+            <section class="stats-section">
+                <h2 class="stats-heading">💰 Podsumowanie Kosztów AI</h2>
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-icon">💵</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Łączny koszt</div>
+                            <div class="stat-value">$12.45</div>
+                            <div class="stat-trend positive">↓ 15% vs. poprzedni miesiąc</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📝</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Liczba notatek</div>
+                            <div class="stat-value">247</div>
+                            <div class="stat-trend positive">↑ 23 w tym miesiącu</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💎</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Średni koszt</div>
+                            <div class="stat-value">$0.050</div>
+                            <div class="stat-trend">na notatkę</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔢</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Łączne tokeny</div>
+                            <div class="stat-value">487,234</div>
+                            <div class="stat-trend">~1,972 na notatkę</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sekcja 2: Podział Kategorii -->
+            <section class="stats-section">
+                <h2 class="stats-heading">📂 Podział Kategorii Notatek</h2>
+                <div class="stats-grid-2col">
+                    <!-- Wykres kołowy (mockup) -->
+                    <div class="chart-container">
+                        <div class="pie-chart-placeholder">
+                            <div class="pie-segment praca" style="--percentage: 45%">
+                                <span class="pie-label">45%</span>
+                            </div>
+                            <div class="pie-segment dom" style="--percentage: 35%">
+                                <span class="pie-label">35%</span>
+                            </div>
+                            <div class="pie-segment inne" style="--percentage: 20%">
+                                <span class="pie-label">20%</span>
+                            </div>
+                        </div>
+                        <div class="chart-legend">
+                            <div class="legend-item">
+                                <span class="legend-color praca-color"></span>
+                                <span class="legend-text">💼 Praca (Służbowe)</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-color dom-color"></span>
+                                <span class="legend-text">🏠 Dom (Prywatne)</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-color inne-color"></span>
+                                <span class="legend-text">📌 Inne</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabela szczegółów -->
+                    <div class="category-details">
+                        <table class="stats-table">
+                            <thead>
+                                <tr>
+                                    <th>Kategoria</th>
+                                    <th>Liczba</th>
+                                    <th>Procent</th>
+                                    <th>Koszt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>💼 Praca</td>
+                                    <td><strong>111</strong></td>
+                                    <td>45%</td>
+                                    <td>$5.67</td>
+                                </tr>
+                                <tr>
+                                    <td>🏠 Dom</td>
+                                    <td><strong>86</strong></td>
+                                    <td>35%</td>
+                                    <td>$4.23</td>
+                                </tr>
+                                <tr>
+                                    <td>📌 Inne</td>
+                                    <td><strong>50</strong></td>
+                                    <td>20%</td>
+                                    <td>$2.55</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td><strong>RAZEM</strong></td>
+                                    <td><strong>247</strong></td>
+                                    <td><strong>100%</strong></td>
+                                    <td><strong>$12.45</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sekcja 3: Analiza Zadań -->
+            <section class="stats-section">
+                <h2 class="stats-heading">✅ Analiza Zadań</h2>
+                <div class="stats-cards stats-cards-compact">
+                    <div class="stat-card compact">
+                        <div class="stat-content">
+                            <div class="stat-label">Średni czas reakcji</div>
+                            <div class="stat-value medium">2.3 dni</div>
+                            <div class="stat-sublabel">od utworzenia do wykonania</div>
+                        </div>
+                    </div>
+                    <div class="stat-card compact">
+                        <div class="stat-content">
+                            <div class="stat-label">Najszybsze wykonanie</div>
+                            <div class="stat-value medium success">0.5h</div>
+                            <div class="stat-sublabel">rekord prędkości</div>
+                        </div>
+                    </div>
+                    <div class="stat-card compact">
+                        <div class="stat-content">
+                            <div class="stat-label">Najdłuższe oczekiwanie</div>
+                            <div class="stat-value medium warning">45 dni</div>
+                            <div class="stat-sublabel">do wykonania</div>
+                        </div>
+                    </div>
+                    <div class="stat-card compact">
+                        <div class="stat-content">
+                            <div class="stat-label">Ukończone zadania</div>
+                            <div class="stat-value medium">68%</div>
+                            <div class="stat-sublabel">189 z 278 zadań</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progress bar dla zadań -->
+                <div class="task-progress-section">
+                    <h3 class="subsection-title">Postęp wykonania zadań</h3>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" style="width: 68%">
+                            <span class="progress-label">68% ukończone (189/278)</span>
+                        </div>
+                    </div>
+                    <div class="task-breakdown">
+                        <div class="breakdown-item">
+                            <span class="breakdown-dot completed"></span>
+                            <span>Ukończone: 189</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-dot pending"></span>
+                            <span>Oczekujące: 89</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sekcja 4: Top 5 najdroższych notatek -->
+            <section class="stats-section">
+                <h2 class="stats-heading">💸 Top 5 Najdroższych Notatek</h2>
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Temat</th>
+                            <th>Kategoria</th>
+                            <th>Data</th>
+                            <th>Tokeny</th>
+                            <th>Koszt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td><a href="#">Spotkanie z zespołem Kohl - planowanie Q1 2025</a></td>
+                            <td>💼 Praca</td>
+                            <td>2025-01-15</td>
+                            <td>4,523</td>
+                            <td><strong>$0.089</strong></td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td><a href="#">Analiza wyników klienta - raport miesięczny</a></td>
+                            <td>💼 Praca</td>
+                            <td>2025-01-12</td>
+                            <td>3,892</td>
+                            <td><strong>$0.076</strong></td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td><a href="#">Plan urlopu wakacyjnego z rodziną</a></td>
+                            <td>🏠 Dom</td>
+                            <td>2025-01-10</td>
+                            <td>3,234</td>
+                            <td><strong>$0.063</strong></td>
+                        </tr>
+                        <tr>
+                            <td>4</td>
+                            <td><a href="#">Zakupy na urodziny córki - pomysły</a></td>
+                            <td>🏠 Dom</td>
+                            <td>2025-01-08</td>
+                            <td>2,967</td>
+                            <td><strong>$0.058</strong></td>
+                        </tr>
+                        <tr>
+                            <td>5</td>
+                            <td><a href="#">Prezentacja dla klienta - key points</a></td>
+                            <td>💼 Praca</td>
+                            <td>2025-01-05</td>
+                            <td>2,845</td>
+                            <td><strong>$0.056</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Sekcja 5: Wykres kosztów w czasie (mockup) -->
+            <section class="stats-section">
+                <h2 class="stats-heading">📈 Trend Kosztów w Czasie</h2>
+                <div class="bar-chart-container">
+                    <div class="bar-chart">
+                        <div class="bar-item">
+                            <div class="bar" style="height: 45%"></div>
+                            <div class="bar-label">Sty</div>
+                            <div class="bar-value">$4.50</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 52%"></div>
+                            <div class="bar-label">Lut</div>
+                            <div class="bar-value">$5.20</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 38%"></div>
+                            <div class="bar-label">Mar</div>
+                            <div class="bar-value">$3.80</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 60%"></div>
+                            <div class="bar-label">Kwi</div>
+                            <div class="bar-value">$6.00</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 48%"></div>
+                            <div class="bar-label">Maj</div>
+                            <div class="bar-value">$4.80</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 55%"></div>
+                            <div class="bar-label">Cze</div>
+                            <div class="bar-value">$5.50</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sekcja 6: Słowa kluczowe klasyfikacji -->
+            <section class="stats-section">
+                <h2 class="stats-heading">🔍 Automatyczna Klasyfikacja - Słowa Kluczowe</h2>
+                <div class="keyword-grid">
+                    <div class="keyword-category">
+                        <h3 class="keyword-title">💼 Służbowe (Praca)</h3>
+                        <div class="keyword-tags">
+                            <span class="keyword-tag praca">Kohl</span>
+                            <span class="keyword-tag praca">klient</span>
+                            <span class="keyword-tag praca">zespół</span>
+                            <span class="keyword-tag praca">projekt</span>
+                            <span class="keyword-tag praca">spotkanie</span>
+                            <span class="keyword-tag praca">raport</span>
+                            <span class="keyword-tag praca">prezentacja</span>
+                            <span class="keyword-tag praca">deadline</span>
+                        </div>
+                        <p class="keyword-description">Pewność klasyfikacji: <strong>85-95%</strong></p>
+                    </div>
+                    <div class="keyword-category">
+                        <h3 class="keyword-title">🏠 Prywatne (Dom)</h3>
+                        <div class="keyword-tags">
+                            <span class="keyword-tag dom">córka</span>
+                            <span class="keyword-tag dom">żona</span>
+                            <span class="keyword-tag dom">zakupy</span>
+                            <span class="keyword-tag dom">syn</span>
+                            <span class="keyword-tag dom">mama</span>
+                            <span class="keyword-tag dom">urlop</span>
+                            <span class="keyword-tag dom">rodzina</span>
+                            <span class="keyword-tag dom">dom</span>
+                        </div>
+                        <p class="keyword-description">Pewność klasyfikacji: <strong>80-92%</strong></p>
+                    </div>
+                    <div class="keyword-category">
+                        <h3 class="keyword-title">📌 Inne</h3>
+                        <div class="keyword-tags">
+                            <span class="keyword-tag inne">wszystko inne</span>
+                            <span class="keyword-tag inne">hobby</span>
+                            <span class="keyword-tag inne">idea</span>
+                            <span class="keyword-tag inne">przypomnienie</span>
+                        </div>
+                        <p class="keyword-description">Klasyfikacja domyślna dla treści neutralnych</p>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <footer>
+            <a href="{{ url_for('notes_list') }}" class="btn">← Powrót do listy</a>
+        </footer>
+    </div>
+</body>
+</html>
