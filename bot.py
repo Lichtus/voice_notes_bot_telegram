@@ -1151,17 +1151,20 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
     else:
         await update.message.reply_text(message, parse_mode='Markdown')
 
-    # Wyślij audio jeśli jest
-    if notatka.audio_file_id:
-        try:
-            await context.bot.send_voice(
-                chat_id=update.effective_chat.id,
-                voice=notatka.audio_file_id,
-                caption="🎧 Oryginalne nagranie"
-            )
-        except Exception as e:
-            logger.error(f"Błąd wysyłania audio: {e}")
-            await update.message.reply_text("⚠️ Nie mogę wysłać nagrania audio (plik wygasł)")
+    # ========================================
+    # WYSYŁANIE AUDIO - WYŁĄCZONE (oszczędność miejsca)
+    # Aby włączyć: odkomentuj poniższy blok
+    # ========================================
+    # if notatka.audio_file_id:
+    #     try:
+    #         await context.bot.send_voice(
+    #             chat_id=update.effective_chat.id,
+    #             voice=notatka.audio_file_id,
+    #             caption="🎧 Oryginalne nagranie"
+    #         )
+    #     except Exception as e:
+    #         logger.error(f"Błąd wysyłania audio: {e}")
+    #         await update.message.reply_text("⚠️ Nie mogę wysłać nagrania audio (plik wygasł)")
 
 
 async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE, notatka):
@@ -1216,20 +1219,23 @@ async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE
             parse_mode='Markdown'
         )
 
-    # Wyślij audio jeśli jest
-    if notatka.audio_file_id:
-        try:
-            await context.bot.send_voice(
-                chat_id=query.message.chat_id,
-                voice=notatka.audio_file_id,
-                caption="🎧 Oryginalne nagranie"
-            )
-        except Exception as e:
-            logger.error(f"Błąd wysyłania audio: {e}")
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="⚠️ Nie mogę wysłać nagrania audio (plik wygasł)"
-            )
+    # ========================================
+    # WYSYŁANIE AUDIO - WYŁĄCZONE (oszczędność miejsca)
+    # Aby włączyć: odkomentuj poniższy blok
+    # ========================================
+    # if notatka.audio_file_id:
+    #     try:
+    #         await context.bot.send_voice(
+    #             chat_id=query.message.chat_id,
+    #             voice=notatka.audio_file_id,
+    #             caption="🎧 Oryginalne nagranie"
+    #         )
+    #     except Exception as e:
+    #         logger.error(f"Błąd wysyłania audio: {e}")
+    #         await context.bot.send_message(
+    #             chat_id=query.message.chat_id,
+    #             text="⚠️ Nie mogę wysłać nagrania audio (plik wygasł)"
+    #         )
 
 
 @check_user_allowed
