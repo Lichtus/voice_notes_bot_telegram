@@ -236,6 +236,7 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             message = (
                 f"{icon} *{percent}%* dopasowania\n"
+                f"🆔 Notatka #{notatka.id}\n"
                 f"📅 {data_str}{zadania_info}\n"
                 f"📌 *{notatka.temat}*\n"
                 f"📝 {notatka.opis[:150]}{'...' if len(notatka.opis) > 150 else ''}"
@@ -571,7 +572,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text="🎉 *Notatka zapisana i PDF wygenerowany!*",
+                    text=f"🎉 *Notatka #{notatka.id} zapisana i PDF wygenerowany!*",
                     parse_mode='Markdown'
                 )
 
@@ -579,7 +580,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Błąd generowania PDF: {e}")
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"✅ Notatka zapisana!\n❌ Błąd generowania PDF: {str(e)}",
+                    text=f"✅ Notatka #{notatka.id} zapisana!\n❌ Błąd generowania PDF: {str(e)}",
                     parse_mode='Markdown'
                 )
 
@@ -591,7 +592,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Zapisz notatkę bez PDF
         note = pending_notes.get(user_id)
         if note:
-            db.add_notatka(
+            notatka = db.add_notatka(
                 telegram_user_id=user_id,
                 temat=note["temat"],
                 opis=note["opis"],
@@ -606,7 +607,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             photo_count = len(note["photos"])
             photos_info = f" z {photo_count} zdjęciami" if photo_count > 0 else ""
-            await query.edit_message_text(f"🎉 *Notatka zapisana{photos_info}!*", parse_mode='Markdown')
+            await query.edit_message_text(f"🎉 *Notatka #{notatka.id} zapisana{photos_info}!*", parse_mode='Markdown')
 
         return ConversationHandler.END
 
@@ -614,7 +615,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Stara akcja zapisu (bez zdjęć i PDF) - zostawiona dla kompatybilności
         note = pending_notes.get(user_id)
         if note:
-            db.add_notatka(
+            notatka = db.add_notatka(
                 telegram_user_id=user_id,
                 temat=note["temat"],
                 opis=note["opis"],
@@ -626,7 +627,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cost_data=note.get("cost_data")  # Dane o kosztach API
             )
             del pending_notes[user_id]
-            await query.edit_message_text("🎉 *Notatka zapisana!*", parse_mode='Markdown')
+            await query.edit_message_text(f"🎉 *Notatka #{notatka.id} zapisana!*", parse_mode='Markdown')
         return ConversationHandler.END
 
     elif action == "edit_temat":
@@ -1540,8 +1541,8 @@ def main():
 
     # Dodanie handlerów
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(conv_handler)
-    application.add_handler(edit_note_conv_handler)  # Handler edycji notatek
+    application.add_handler(edit_note_conv_handler)  # Handler edycji notatek - PRZED głównym!
+    application.add_handler(conv_handler)  # Główny handler
     application.add_handler(CommandHandler("lista", lista))
     application.add_handler(CommandHandler("notatka", notatka))
     application.add_handler(CommandHandler("ostatnia", ostatnia))
