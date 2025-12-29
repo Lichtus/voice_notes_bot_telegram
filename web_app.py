@@ -1022,8 +1022,11 @@ def statistics():
         month_cost = sum(float(n.cost_total_usd) for n in month_notes)
         monthly_costs[month_name] = month_cost
 
-    # Odwróć kolejność (najstarszy pierwszy)
-    monthly_costs = dict(reversed(list(monthly_costs.items())))
+    # Odwróć kolejność (najstarszy pierwszy) i przekształć na listę słowników
+    monthly_costs_list = [
+        {'month': month, 'cost': cost}
+        for month, cost in reversed(list(monthly_costs.items()))
+    ]
 
     # Przygotuj dane do szablonu
     stats = {
@@ -1040,7 +1043,7 @@ def statistics():
         'fastest_time': fastest_time,
         'slowest_time': slowest_time,
         'top_notes': top_notes,
-        'monthly_costs': monthly_costs
+        'monthly_costs': monthly_costs_list
     }
 
     return render_template('statistics.html', user=session, stats=stats)
