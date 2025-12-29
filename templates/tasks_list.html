@@ -177,19 +177,16 @@
                     </thead>
                     <tbody>
                         {% for task in tasks %}
-                        <tr id="task-{{ task.id }}">
+                        <tr id="task-{{ task.id }}" data-task-id="{{ task.id }}">
                             <td>
-                                <form method="POST" action="{{ url_for('toggle_task', task_id=task.id) }}" style="margin: 0;" onsubmit="saveScrollPosition()">
-                                    <input type="hidden" name="status_filter" value="{{ status_filter }}">
-                                    <input type="hidden" name="sort_by" value="{{ sort_by }}">
-                                    <input type="checkbox"
-                                           class="task-checkbox"
-                                           {% if task.wykonane %}checked{% endif %}
-                                           onchange="this.form.submit()"
-                                           title="{% if task.wykonane %}Oznacz jako niewykonane{% else %}Oznacz jako wykonane{% endif %}">
-                                </form>
+                                <input type="checkbox"
+                                       class="task-checkbox"
+                                       data-task-id="{{ task.id }}"
+                                       {% if task.wykonane %}checked{% endif %}
+                                       onchange="toggleTask({{ task.id }}, this.checked)"
+                                       title="{% if task.wykonane %}Oznacz jako niewykonane{% else %}Oznacz jako wykonane{% endif %}">
                             </td>
-                            <td>
+                            <td class="task-text">
                                 <span class="{% if task.wykonane %}task-completed{% else %}task-pending{% endif %}">
                                     {{ task.zadanie }}
                                 </span>
@@ -209,7 +206,7 @@
                                     {{ task.notatka_data.strftime('%Y-%m-%d %H:%M') }}
                                 </span>
                             </td>
-                            <td>
+                            <td class="completion-date-cell">
                                 {% if task.data_wykonania %}
                                 <span class="completion-date">
                                     ✅ {{ task.data_wykonania.strftime('%Y-%m-%d %H:%M') }}
@@ -235,35 +232,64 @@
     </div>
 
     <script>
-        // Zapisz pozycję scrollowania przed submitem formularza
-        function saveScrollPosition() {
-            const scrollY = window.scrollY || window.pageYOffset;
-            sessionStorage.setItem('tasksScrollPosition', scrollY.toString());
+        // Funkcja do toggle zadania przez AJAX (bez przeładowania strony)
+        function toggleTask(taskId, isChecked) {
+            const row = document.querySelector(`tr[data-task-id="${taskId}"]`);
+            const checkbox = row.querySelector('.task-checkbox');
+            const taskTextSpan = row.querySelector('.task-text span');
+            const completionCell = row.querySelector('.completion-date-cell');
+
+            // Wyłącz checkbox podczas requestu
+            checkbox.disabled = true;
+
+            // Wyślij AJAX request
+            fetch(`/tasks/${taskId}/toggle`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    'status_filter': '{{ status_filter }}',
+                    'sort_by': '{{ sort_by }}'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Zaktualizuj UI
+                    if (data.wykonane) {
+                        // Zadanie wykonane
+                        taskTextSpan.classList.remove('task-pending');
+                        taskTextSpan.classList.add('task-completed');
+
+                        // Dodaj datę wykonania z serwera
+                        completionCell.innerHTML = `<span class="completion-date">✅ ${data.data_wykonania}</span>`;
+                    } else {
+                        // Zadanie niewykonane
+                        taskTextSpan.classList.remove('task-completed');
+                        taskTextSpan.classList.add('task-pending');
+
+                        // Usuń datę wykonania
+                        completionCell.innerHTML = '<span style="color: #ccc;">-</span>';
+                    }
+
+                    // Włącz checkbox
+                    checkbox.disabled = false;
+                } else {
+                    // Błąd - przywróć poprzedni stan
+                    checkbox.checked = !isChecked;
+                    checkbox.disabled = false;
+                    alert('Błąd podczas aktualizacji zadania');
+                }
+            })
+            .catch(error => {
+                // Błąd sieciowy - przywróć poprzedni stan
+                console.error('Error:', error);
+                checkbox.checked = !isChecked;
+                checkbox.disabled = false;
+                alert('Błąd połączenia z serwerem');
+            });
         }
-
-        // Przywróć pozycję scrollowania - wykonaj jak najszybciej
-        (function() {
-            const scrollPosition = sessionStorage.getItem('tasksScrollPosition');
-            if (scrollPosition !== null) {
-                // Przywróć scroll natychmiast
-                const scrollY = parseInt(scrollPosition);
-
-                // Spróbuj od razu
-                window.scrollTo(0, scrollY);
-
-                // I ponownie po załadowaniu DOM (dla pewności)
-                document.addEventListener('DOMContentLoaded', function() {
-                    window.scrollTo(0, scrollY);
-
-                    // I jeszcze raz z małym opóźnieniem (dla obrazków itp.)
-                    setTimeout(function() {
-                        window.scrollTo(0, scrollY);
-                        // Wyczyść zapisaną pozycję dopiero teraz
-                        sessionStorage.removeItem('tasksScrollPosition');
-                    }, 100);
-                });
-            }
-        })();
     </script>
 </body>
 </html>
