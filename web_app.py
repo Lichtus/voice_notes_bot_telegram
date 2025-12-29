@@ -38,6 +38,9 @@ db = Database()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_BOT_USERNAME = 'Lichtus_notes_bot'
 
+# Przechowywanie kodów weryfikacyjnych (user_id -> {code, timestamp, user_data})
+login_codes = {}
+
 
 # ============================================
 # TELEGRAM LOGIN - AUTHENTICATION
@@ -89,6 +92,49 @@ def login_required(f):
     return decorated_function
 
 
+def generate_login_code():
+    """Generuje 6-cyfrowy kod weryfikacyjny"""
+    import random
+    return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+
+def store_login_code(user_id, code, user_data):
+    """Przechowuje kod weryfikacyjny dla użytkownika"""
+    login_codes[user_id] = {
+        'code': code,
+        'timestamp': datetime.now(),
+        'user_data': user_data
+    }
+    logger.info(f"Stored login code for user {user_id}")
+
+
+def verify_login_code(user_id, code):
+    """Weryfikuje kod weryfikacyjny"""
+    if user_id not in login_codes:
+        logger.warning(f"No login code found for user {user_id}")
+        return None
+
+    stored = login_codes[user_id]
+
+    # Sprawdź czy kod nie wygasł (5 minut)
+    if (datetime.now() - stored['timestamp']).seconds > 300:
+        logger.warning(f"Login code expired for user {user_id}")
+        del login_codes[user_id]
+        return None
+
+    # Sprawdź czy kod się zgadza
+    if stored['code'] != code:
+        logger.warning(f"Invalid login code for user {user_id}")
+        return None
+
+    # Usuń użyty kod
+    user_data = stored['user_data']
+    del login_codes[user_id]
+    logger.info(f"Login code verified for user {user_id}")
+
+    return user_data
+
+
 # ============================================
 # AUTHENTICATION ROUTES
 # ============================================
@@ -136,6 +182,77 @@ def logout():
     session.clear()
     logger.info(f"User logged out: {user_name}")
     return redirect(url_for('login'))
+
+
+@app.route('/api/store-code', methods=['POST'])
+def api_store_code():
+    """
+    API endpoint dla bota do przechowania wygenerowanego kodu
+    Bot wywołuje ten endpoint po wygenerowaniu kodu
+    """
+    try:
+        data = request.get_json()
+
+        # Weryfikacja danych
+        required_fields = ['user_id', 'code', 'first_name']
+        if not all(field in data for field in required_fields):
+            return {'success': False, 'error': 'Missing required fields'}, 400
+
+        # Przechowaj kod
+        user_data = {
+            'telegram_user_id': data['user_id'],
+            'first_name': data.get('first_name', ''),
+            'last_name': data.get('last_name', ''),
+            'username': data.get('username', ''),
+        }
+
+        store_login_code(data['user_id'], data['code'], user_data)
+
+        return {'success': True}, 200
+
+    except Exception as e:
+        logger.error(f"Error storing code: {e}")
+        return {'success': False, 'error': str(e)}, 500
+
+
+@app.route('/verify-code', methods=['POST'])
+def verify_code_route():
+    """Weryfikuje kod wpisany przez użytkownika"""
+    try:
+        user_id = request.form.get('user_id')
+        code = request.form.get('code')
+
+        if not user_id or not code:
+            return render_template('login.html',
+                                 bot_username=TELEGRAM_BOT_USERNAME,
+                                 auth_url=url_for('telegram_auth', _external=True),
+                                 error="Podaj ID użytkownika i kod weryfikacyjny")
+
+        # Weryfikuj kod
+        user_data = verify_login_code(int(user_id), code)
+
+        if not user_data:
+            return render_template('login.html',
+                                 bot_username=TELEGRAM_BOT_USERNAME,
+                                 auth_url=url_for('telegram_auth', _external=True),
+                                 error="Nieprawidłowy lub wygasły kod")
+
+        # Zaloguj użytkownika
+        session['telegram_user_id'] = user_data['telegram_user_id']
+        session['first_name'] = user_data['first_name']
+        session['last_name'] = user_data['last_name']
+        session['username'] = user_data['username']
+
+        logger.info(f"User logged in via code: {session['first_name']} (ID: {session['telegram_user_id']})")
+
+        return redirect(url_for('notes_list'))
+
+    except Exception as e:
+        logger.error(f"Error verifying code: {e}")
+        return render_template('login.html',
+                             bot_username=TELEGRAM_BOT_USERNAME,
+                             auth_url=url_for('telegram_auth', _external=True),
+                             error="Błąd podczas weryfikacji kodu")
 
 
 # ============================================

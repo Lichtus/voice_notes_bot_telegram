@@ -20,7 +20,7 @@
             border-radius: 15px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
             text-align: center;
-            max-width: 400px;
+            max-width: 500px;
             width: 90%;
         }
 
@@ -32,7 +32,7 @@
 
         .login-box .subtitle {
             color: #666;
-            margin: 0 0 40px 0;
+            margin: 0 0 30px 0;
             font-size: 16px;
         }
 
@@ -41,36 +41,113 @@
             margin: 20px 0;
             font-size: 14px;
             line-height: 1.6;
-        }
-
-        .telegram-widget-container {
-            display: flex;
-            justify-content: center;
-            margin: 30px 0;
-        }
-
-        .features {
-            margin-top: 40px;
             text-align: left;
             background: #f8f9fa;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
         }
 
-        .features h3 {
-            margin: 0 0 15px 0;
-            color: #667eea;
-            font-size: 18px;
+        .login-box .info ol {
+            margin: 10px 0 0 20px;
+            padding: 0;
         }
 
-        .features ul {
-            margin: 0;
-            padding-left: 20px;
-        }
-
-        .features li {
+        .login-box .info li {
             margin: 8px 0;
+        }
+
+        .telegram-link {
+            display: inline-block;
+            background: #0088cc;
+            color: white;
+            padding: 15px 40px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            margin: 20px 0;
+            transition: background 0.3s ease;
+        }
+
+        .telegram-link:hover {
+            background: #006699;
+        }
+
+        .divider {
+            margin: 30px 0;
+            color: #999;
+            font-size: 14px;
+        }
+
+        .code-form {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .code-form h3 {
+            margin: 0 0 20px 0;
+            color: #667eea;
+        }
+
+        .form-group {
+            margin: 15px 0;
+        }
+
+        .form-group label {
+            display: block;
+            text-align: left;
+            margin-bottom: 5px;
             color: #555;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-submit {
+            background: #667eea;
+            color: white;
+            padding: 12px 40px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s ease;
+        }
+
+        .btn-submit:hover {
+            background: #5568d3;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 15px 0;
+            border-left: 4px solid #f5c6cb;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -78,31 +155,71 @@
     <div class="login-container">
         <div class="login-box">
             <h1>📝 Voice Notes Bot</h1>
-            <p class="subtitle">Aplikacja do zarządzania notatkami głosowymi</p>
+            <p class="subtitle">Logowanie przez Telegram</p>
 
-            <p class="info">
-                Zaloguj się przez Telegram, aby uzyskać dostęp do swoich notatek.
-            </p>
-
-            <!-- Telegram Login Widget -->
-            <div class="telegram-widget-container">
-                <script async src="https://telegram.org/js/telegram-widget.js?22"
-                        data-telegram-login="{{ bot_username }}"
-                        data-size="large"
-                        data-auth-url="{{ auth_url }}"
-                        data-request-access="write">
-                </script>
+            <div class="info">
+                <strong>🔐 Jak się zalogować:</strong>
+                <ol>
+                    <li>Kliknij przycisk "Otwórz w Telegram" poniżej</li>
+                    <li>Bot wyśle Ci 6-cyfrowy kod weryfikacyjny</li>
+                    <li>Wpisz swój Telegram User ID i kod w formularzu</li>
+                    <li>Gotowe! Zostaniesz zalogowany</li>
+                </ol>
             </div>
 
-            <div class="features">
-                <h3>✨ Funkcje aplikacji:</h3>
-                <ul>
-                    <li>🔍 Wyszukiwanie i filtrowanie notatek</li>
-                    <li>📋 Zarządzanie zadaniami</li>
-                    <li>📷 Przeglądanie zdjęć</li>
-                    <li>📧 Wysyłanie notatek mailem</li>
-                    <li>🔒 Bezpieczny dostęp przez Telegram</li>
-                </ul>
+            <a href="https://t.me/{{ bot_username }}?start=webapp_login"
+               class="telegram-link"
+               target="_blank">
+                📱 Otwórz w Telegram
+            </a>
+
+            <p class="divider">━━━━━━━━━━━━━━</p>
+
+            {% if error %}
+            <div class="error-message">
+                ⚠️ {{ error }}
+            </div>
+            {% endif %}
+
+            <div class="code-form">
+                <h3>Wpisz kod weryfikacyjny</h3>
+
+                <form method="POST" action="{{ url_for('verify_code_route') }}">
+                    <div class="form-group">
+                        <label for="user_id">Telegram User ID:</label>
+                        <input type="text"
+                               id="user_id"
+                               name="user_id"
+                               placeholder="Twój Telegram User ID"
+                               required>
+                        <div class="help-text">
+                            💡 Znajdziesz go w wiadomości od bota
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="code">Kod weryfikacyjny:</label>
+                        <input type="text"
+                               id="code"
+                               name="code"
+                               placeholder="123456"
+                               maxlength="6"
+                               pattern="[0-9]{6}"
+                               required>
+                        <div class="help-text">
+                            ⏱️ Kod ważny 5 minut
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit">
+                        🔓 Zaloguj się
+                    </button>
+                </form>
+            </div>
+
+            <div style="margin-top: 30px; font-size: 12px; color: #999;">
+                <p>Bezpieczne logowanie przez Telegram</p>
+                <p>Twoje dane są chronione</p>
             </div>
         </div>
     </div>
