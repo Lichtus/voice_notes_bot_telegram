@@ -1,72 +1,50 @@
 """
-Skrypt migracji: Dodaje kolumny 'kategoria' i 'deleted_at' do tabeli notatki
-Używa wbudowanego modułu sqlite3 (bez dodatkowych zależności)
+Prosty skrypt migracji - dodaje kolumny processing_time i auto_category_confidence
 """
 import sqlite3
 import os
 
-# Ścieżka do bazy danych
-DB_PATH = os.getenv('DATABASE_PATH', 'voice_notes.db')
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'voice_notes.db')
 
-print(f"🔗 Łączenie z bazą danych: {DB_PATH}")
+print(f"🚀 Rozpoczynam migrację dla: {DATABASE_PATH}")
+
+conn = sqlite3.connect(DATABASE_PATH)
+cursor = conn.cursor()
 
 try:
-    # Sprawdź czy baza danych istnieje i nie jest pusta
-    if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0:
-        print("ℹ️  Baza danych nie istnieje lub jest pusta")
-        print("💡 Nowe kolumny zostaną dodane automatycznie przy pierwszym uruchomieniu bota/web app")
-        exit(0)
-
-    # Połącz się z bazą
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # Sprawdź czy tabela notatki istnieje
+    # Sprawdź czy tabela istnieje
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='notatki'")
     if not cursor.fetchone():
-        print("ℹ️  Tabela 'notatki' nie istnieje")
-        print("💡 Zostanie utworzona automatycznie przy pierwszym uruchomieniu bota/web app")
-        conn.close()
-        exit(0)
+        print("❌ Tabela 'notatki' nie istnieje. Uruchom najpierw aplikację aby utworzyć bazę danych.")
+        exit(1)
 
-    # Sprawdź obecne kolumny
+    # Pobierz istniejące kolumny
     cursor.execute("PRAGMA table_info(notatki)")
-    columns = [col[1] for col in cursor.fetchall()]
-    print(f"📋 Obecne kolumny: {', '.join(columns)}")
+    columns = [row[1] for row in cursor.fetchall()]
+    print(f"✓ Znaleziono {len(columns)} kolumn w tabeli 'notatki'")
 
-    # Dodaj kolumnę 'kategoria' jeśli nie istnieje
-    if 'kategoria' not in columns:
-        print("➕ Dodawanie kolumny 'kategoria'...")
-        cursor.execute("ALTER TABLE notatki ADD COLUMN kategoria VARCHAR(50) DEFAULT 'Inne' NOT NULL")
-        conn.commit()
-        print("✅ Kolumna 'kategoria' dodana!")
+    # Dodaj processing_time jeśli nie istnieje
+    if 'processing_time' not in columns:
+        print("➕ Dodaję kolumnę 'processing_time'...")
+        cursor.execute("ALTER TABLE notatki ADD COLUMN processing_time TEXT")
+        print("✅ Dodano 'processing_time'")
     else:
-        print("ℹ️  Kolumna 'kategoria' już istnieje")
+        print("✓ Kolumna 'processing_time' już istnieje")
 
-    # Dodaj kolumnę 'deleted_at' jeśli nie istnieje
-    if 'deleted_at' not in columns:
-        print("➕ Dodawanie kolumny 'deleted_at'...")
-        cursor.execute("ALTER TABLE notatki ADD COLUMN deleted_at TIMESTAMP NULL")
-        conn.commit()
-        print("✅ Kolumna 'deleted_at' dodana!")
+    # Dodaj auto_category_confidence jeśli nie istnieje
+    if 'auto_category_confidence' not in columns:
+        print("➕ Dodaję kolumnę 'auto_category_confidence'...")
+        cursor.execute("ALTER TABLE notatki ADD COLUMN auto_category_confidence TEXT")
+        print("✅ Dodano 'auto_category_confidence'")
     else:
-        print("ℹ️  Kolumna 'deleted_at' już istnieje")
+        print("✓ Kolumna 'auto_category_confidence' już istnieje")
 
-    # Sprawdź zaktualizowane kolumny
-    cursor.execute("PRAGMA table_info(notatki)")
-    updated_columns = [col[1] for col in cursor.fetchall()]
-    print(f"\n📋 Zaktualizowane kolumny: {', '.join(updated_columns)}")
-
-    conn.close()
-
-    print("\n🎉 Migracja zakończona pomyślnie!")
-    print("\n📝 Co zostało dodane:")
-    print("   - kategoria: Kategoria notatki (Praca, Dom, Inne)")
-    print("   - deleted_at: Data usunięcia (NULL = aktywna)")
-    print("\n💡 Wszystkie istniejące notatki otrzymały kategorię 'Inne'")
+    conn.commit()
+    print("🎉 Migracja zakończona pomyślnie!")
 
 except Exception as e:
-    print(f"❌ Błąd podczas migracji: {e}")
-    import traceback
-    traceback.print_exc()
+    print(f"❌ Błąd: {e}")
+    conn.rollback()
     exit(1)
+finally:
+    conn.close()
