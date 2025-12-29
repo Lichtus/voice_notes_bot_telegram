@@ -13,6 +13,55 @@
             <p class="subtitle">Łącznie: {{ total_notes }} notatek</p>
         </header>
 
+        <!-- Formularz wyszukiwania i filtrowania -->
+        <div class="filters-panel">
+            <form method="GET" action="{{ url_for('notes_list') }}" class="filters-form">
+                <!-- Wyszukiwanie -->
+                <div class="filter-group">
+                    <input type="text" name="search" placeholder="🔍 Szukaj w notatkach..."
+                           value="{{ search }}" class="search-input">
+                </div>
+
+                <!-- Filtr daty -->
+                <div class="filter-group">
+                    <select name="date_filter" class="filter-select">
+                        <option value="all" {% if date_filter == 'all' %}selected{% endif %}>📅 Wszystkie daty</option>
+                        <option value="7days" {% if date_filter == '7days' %}selected{% endif %}>Ostatnie 7 dni</option>
+                        <option value="30days" {% if date_filter == '30days' %}selected{% endif %}>Ostatnie 30 dni</option>
+                        <option value="90days" {% if date_filter == '90days' %}selected{% endif %}>Ostatnie 90 dni</option>
+                    </select>
+                </div>
+
+                <!-- Filtr zadań -->
+                <div class="filter-group">
+                    <select name="tasks_filter" class="filter-select">
+                        <option value="all" {% if tasks_filter == 'all' %}selected{% endif %}>📋 Wszystkie</option>
+                        <option value="with_tasks" {% if tasks_filter == 'with_tasks' %}selected{% endif %}>Z zadaniami</option>
+                        <option value="without_tasks" {% if tasks_filter == 'without_tasks' %}selected{% endif %}>Bez zadań</option>
+                        <option value="with_incomplete" {% if tasks_filter == 'with_incomplete' %}selected{% endif %}>Z niewykonanymi</option>
+                    </select>
+                </div>
+
+                <!-- Sortowanie -->
+                <div class="filter-group">
+                    <select name="sort" class="filter-select">
+                        <option value="date_desc" {% if sort_by == 'date_desc' %}selected{% endif %}>⬇️ Najnowsze</option>
+                        <option value="date_asc" {% if sort_by == 'date_asc' %}selected{% endif %}>⬆️ Najstarsze</option>
+                        <option value="title_asc" {% if sort_by == 'title_asc' %}selected{% endif %}>🔤 A-Z</option>
+                        <option value="title_desc" {% if sort_by == 'title_desc' %}selected{% endif %}>🔤 Z-A</option>
+                        <option value="tasks_desc" {% if sort_by == 'tasks_desc' %}selected{% endif %}>📋 Najwięcej zadań</option>
+                        <option value="tasks_asc" {% if sort_by == 'tasks_asc' %}selected{% endif %}>📋 Najmniej zadań</option>
+                    </select>
+                </div>
+
+                <!-- Przyciski -->
+                <div class="filter-group filter-buttons">
+                    <button type="submit" class="btn btn-primary">Filtruj</button>
+                    <a href="{{ url_for('notes_list') }}" class="btn btn-secondary">Wyczyść</a>
+                </div>
+            </form>
+        </div>
+
         <main>
             {% if notes %}
                 <div class="notes-grid">
@@ -20,7 +69,12 @@
                     <div class="note-card">
                         <div class="note-header">
                             <h2><a href="{{ url_for('note_detail', note_id=note.id) }}">{{ note.temat }}</a></h2>
-                            <span class="note-date">{{ note.data_utworzenia.strftime('%Y-%m-%d %H:%M') }}</span>
+                            <div class="note-meta">
+                                <span class="note-date">{{ note.data_utworzenia.strftime('%Y-%m-%d %H:%M') }}</span>
+                                {% if note.is_edited %}
+                                <span class="badge badge-edited" title="Ostatnia edycja: {{ note.edit_date }}">✏️ Edytowano</span>
+                                {% endif %}
+                            </div>
                         </div>
                         <div class="note-body">
                             <p class="note-excerpt">{{ note.opis }}</p>
@@ -41,19 +95,19 @@
                 {% if total_pages > 1 %}
                 <div class="pagination">
                     {% if page > 1 %}
-                    <a href="{{ url_for('notes_list', page=page-1) }}" class="btn">← Poprzednia</a>
+                    <a href="{{ url_for('notes_list', page=page-1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, sort=sort_by) }}" class="btn">← Poprzednia</a>
                     {% endif %}
 
                     <span class="page-info">Strona {{ page }} z {{ total_pages }}</span>
 
                     {% if page < total_pages %}
-                    <a href="{{ url_for('notes_list', page=page+1) }}" class="btn">Następna →</a>
+                    <a href="{{ url_for('notes_list', page=page+1, search=search, date_filter=date_filter, tasks_filter=tasks_filter, sort=sort_by) }}" class="btn">Następna →</a>
                     {% endif %}
                 </div>
                 {% endif %}
             {% else %}
                 <div class="empty-state">
-                    <p>Brak notatek. Wyślij pierwszą notatkę głosową do bota!</p>
+                    <p>{% if search %}Nie znaleziono notatek dla: "{{ search }}"{% else %}Brak notatek. Wyślij pierwszą notatkę głosową do bota!{% endif %}</p>
                 </div>
             {% endif %}
         </main>
