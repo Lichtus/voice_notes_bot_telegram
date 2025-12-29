@@ -234,6 +234,8 @@
     <script>
         // Funkcja do toggle zadania przez AJAX (bez przeładowania strony)
         function toggleTask(taskId, isChecked) {
+            console.log('toggleTask called:', taskId, isChecked);
+
             const row = document.querySelector(`tr[data-task-id="${taskId}"]`);
             const checkbox = row.querySelector('.task-checkbox');
             const taskTextSpan = row.querySelector('.task-text span');
