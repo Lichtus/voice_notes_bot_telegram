@@ -112,14 +112,20 @@ class AIProcessor:
             result = json.loads(result_text)
 
             # Walidacja struktury
-            if not all(key in result for key in ["temat", "opis", "zadania"]):
+            if not all(key in result for key in ["temat", "opis", "zadania", "kategoria"]):
                 raise ValueError("Nieprawidłowa struktura odpowiedzi z GPT")
 
             # Upewnij się że zadania to lista
             if not isinstance(result["zadania"], list):
                 result["zadania"] = []
 
-            logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', {len(result['zadania'])} zadań")
+            # Walidacja kategorii
+            allowed_categories = ["Praca", "Dom", "Inne"]
+            if result["kategoria"] not in allowed_categories:
+                logger.warning(f"Nieprawidłowa kategoria '{result['kategoria']}', ustawiam 'Inne'")
+                result["kategoria"] = "Inne"
+
+            logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', kategoria='{result['kategoria']}', {len(result['zadania'])} zadań")
             return result, usage
 
         except json.JSONDecodeError as e:
@@ -128,7 +134,8 @@ class AIProcessor:
             return {
                 "temat": transcription[:100] if len(transcription) > 100 else transcription,
                 "opis": transcription,
-                "zadania": []
+                "zadania": [],
+                "kategoria": "Inne"
             }, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         except Exception as e:
             logger.error(f"Błąd podczas ekstrakcji struktury: {e}")
@@ -227,6 +234,7 @@ class AIProcessor:
                 "temat": structure["temat"],
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],
+                "kategoria": structure["kategoria"],
                 "embedding": embedding,
                 "cost_data": {
                     "audio_duration_seconds": audio_duration,

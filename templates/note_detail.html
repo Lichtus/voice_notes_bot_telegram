@@ -33,6 +33,20 @@
                 {% if note.is_edited and note.edit_date %}
                 <p class="edit-info">✏️ Ostatnia edycja: {{ note.edit_date }}</p>
                 {% endif %}
+
+                <!-- Kategoria z możliwością edycji -->
+                <div class="category-section" style="margin-top: 15px;">
+                    <form method="POST" action="{{ url_for('update_note_category', note_id=note.id) }}" style="display: inline-flex; align-items: center; gap: 10px;">
+                        <label for="kategoria" style="font-weight: 600;">
+                            {% if note.kategoria == 'Praca' %}💼{% elif note.kategoria == 'Dom' %}🏠{% else %}📌{% endif %} Kategoria:
+                        </label>
+                        <select name="kategoria" id="kategoria" class="category-select" onchange="this.form.submit()" style="padding: 5px 10px; border-radius: 5px; border: 1px solid #ddd;">
+                            <option value="Praca" {% if note.kategoria == 'Praca' %}selected{% endif %}>💼 Praca</option>
+                            <option value="Dom" {% if note.kategoria == 'Dom' %}selected{% endif %}>🏠 Dom</option>
+                            <option value="Inne" {% if note.kategoria == 'Inne' %}selected{% endif %}>📌 Inne</option>
+                        </select>
+                    </form>
+                </div>
             </div>
         </header>
 
@@ -92,7 +106,20 @@
         <footer>
             <a href="{{ url_for('notes_list') }}" class="btn">← Powrót do listy</a>
             <a href="{{ url_for('prepare_email', note_id=note.id) }}" class="btn btn-email">📧 Wyślij mailem</a>
+
+            <!-- Przycisk usuwania -->
+            <form method="POST" action="{{ url_for('delete_note', note_id=note.id) }}" style="display: inline;" onsubmit="return confirmDelete();">
+                <button type="submit" class="btn btn-danger" style="background-color: #dc3545; color: white;">
+                    🗑️ Usuń notatkę
+                </button>
+            </form>
         </footer>
     </div>
+
+    <script>
+        function confirmDelete() {
+            return confirm('Czy na pewno chcesz usunąć tę notatkę? Operacja ta jest nieodwracalna.');
+        }
+    </script>
 </body>
 </html>

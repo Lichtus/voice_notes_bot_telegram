@@ -29,6 +29,12 @@ class Notatka(Base):
     photo_file_ids = Column(Text)  # JSON array z Telegram file_id zdjęć
     embedding = Column(Text)  # JSON embedding dla semantic search
 
+    # Kategoria notatki
+    kategoria = Column(String(50), default='Inne', nullable=False)  # Praca, Dom, Inne
+
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)  # NULL = aktywna, NOT NULL = usunięta
+
     # Kolumny kosztów API OpenAI
     audio_duration_seconds = Column(Integer, nullable=True)  # Długość audio w sekundach
     tokens_input = Column(Integer, nullable=True)  # Tokeny wejściowe GPT
@@ -87,7 +93,7 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne'):
         """
         Dodaje nową notatkę do bazy
 
@@ -111,6 +117,7 @@ class Database:
                 "cost_embedding_usd": float,
                 "cost_total_usd": float
             }
+            kategoria: Kategoria notatki ('Praca', 'Dom', 'Inne')
 
         Returns:
             Notatka: Utworzona notatka
@@ -148,6 +155,7 @@ class Database:
             audio_file_id=audio_file_id,
             photo_file_ids=photos_json,
             embedding=embedding_json,
+            kategoria=kategoria,
             **cost_kwargs
         )
 
@@ -163,7 +171,7 @@ class Database:
         return notatka
 
     def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
-                       zadania_list=None, embedding_vector=None, additional_cost_data=None):
+                       zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None):
         """
         Aktualizuje istniejącą notatkę
 
@@ -186,6 +194,7 @@ class Database:
                 "cost_embedding_usd": float,  # będzie dodane
                 "cost_total_usd": float  # będzie przeliczone
             }
+            kategoria: Nowa kategoria (jeśli None - bez zmian)
 
         Returns:
             Notatka: Zaktualizowana notatka lub None jeśli nie znaleziono
@@ -202,6 +211,8 @@ class Database:
             notatka.opis = opis
         if transkrypcja is not None:
             notatka.transkrypcja = transkrypcja
+        if kategoria is not None:
+            notatka.kategoria = kategoria
 
         # Aktualizuj embedding
         if embedding_vector is not None:
@@ -268,26 +279,32 @@ class Database:
         self.session.commit()
         return notatka
 
-    def get_notatka_by_id(self, notatka_id, telegram_user_id):
+    def get_notatka_by_id(self, notatka_id, telegram_user_id, include_deleted=False):
         """
         Pobiera notatkę po ID (z weryfikacją użytkownika)
 
         Args:
             notatka_id: ID notatki
             telegram_user_id: ID użytkownika (weryfikacja)
+            include_deleted: Czy uwzględnić usunięte notatki
 
         Returns:
             Notatka lub None jeśli nie znaleziono
         """
-        return self.session.query(Notatka)\
+        query = self.session.query(Notatka)\
             .filter(
                 Notatka.id == notatka_id,
                 Notatka.telegram_user_id == telegram_user_id
-            ).first()
+            )
+
+        if not include_deleted:
+            query = query.filter(Notatka.deleted_at.is_(None))
+
+        return query.first()
 
     def get_notatki(self, telegram_user_id, limit=10):
         """
-        Pobiera ostatnie notatki użytkownika
+        Pobiera ostatnie notatki użytkownika (bez usuniętych)
 
         Args:
             telegram_user_id: ID użytkownika
@@ -297,14 +314,17 @@ class Database:
             Lista notatek
         """
         return self.session.query(Notatka)\
-            .filter(Notatka.telegram_user_id == telegram_user_id)\
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None)
+            )\
             .order_by(Notatka.data_utworzenia.desc())\
             .limit(limit)\
             .all()
 
     def search_notatki(self, telegram_user_id, query):
         """
-        Wyszukuje notatki po słowach kluczowych
+        Wyszukuje notatki po słowach kluczowych (bez usuniętych)
 
         Args:
             telegram_user_id: ID użytkownika
@@ -316,6 +336,7 @@ class Database:
         return self.session.query(Notatka)\
             .filter(
                 Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None),
                 (Notatka.temat.contains(query) |
                  Notatka.opis.contains(query) |
                  Notatka.transkrypcja.contains(query))
@@ -325,7 +346,7 @@ class Database:
 
     def get_wszystkie_zadania(self, telegram_user_id, tylko_niewykonane=True):
         """
-        Pobiera wszystkie zadania użytkownika
+        Pobiera wszystkie zadania użytkownika (z aktywnych notatek)
 
         Args:
             telegram_user_id: ID użytkownika
@@ -336,7 +357,10 @@ class Database:
         """
         query = self.session.query(Zadanie)\
             .join(Notatka)\
-            .filter(Notatka.telegram_user_id == telegram_user_id)
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None)
+            )
 
         if tylko_niewykonane:
             query = query.filter(Zadanie.wykonane == False)
@@ -370,24 +394,31 @@ class Database:
 
     def get_statystyki(self, telegram_user_id):
         """
-        Zwraca statystyki użytkownika
+        Zwraca statystyki użytkownika (bez usuniętych notatek)
 
         Returns:
             Dict ze statystykami
         """
         liczba_notatek = self.session.query(Notatka)\
-            .filter(Notatka.telegram_user_id == telegram_user_id)\
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None)
+            )\
             .count()
 
         liczba_zadan = self.session.query(Zadanie)\
             .join(Notatka)\
-            .filter(Notatka.telegram_user_id == telegram_user_id)\
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None)
+            )\
             .count()
 
         liczba_wykonanych = self.session.query(Zadanie)\
             .join(Notatka)\
             .filter(
                 Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None),
                 Zadanie.wykonane == True
             ).count()
 
@@ -404,7 +435,7 @@ class Database:
 
     def get_cost_statistics(self, telegram_user_id):
         """
-        Oblicza statystyki kosztów API dla użytkownika
+        Oblicza statystyki kosztów API dla użytkownika (bez usuniętych notatek)
 
         Args:
             telegram_user_id: ID użytkownika
@@ -413,7 +444,10 @@ class Database:
             Dict ze statystykami kosztów
         """
         notatki = self.session.query(Notatka)\
-            .filter(Notatka.telegram_user_id == telegram_user_id)\
+            .filter(
+                Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None)
+            )\
             .all()
 
         total_whisper = 0.0
@@ -448,7 +482,7 @@ class Database:
 
     def semantic_search(self, telegram_user_id, query_embedding, limit=5):
         """
-        Wyszukiwanie semantyczne notatek używając cosine similarity
+        Wyszukiwanie semantyczne notatek używając cosine similarity (bez usuniętych)
 
         Args:
             telegram_user_id: ID użytkownika
@@ -458,10 +492,11 @@ class Database:
         Returns:
             Lista tuple (notatka, similarity_score) posortowana malejąco po score
         """
-        # Pobierz wszystkie notatki użytkownika z embeddingami
+        # Pobierz wszystkie aktywne notatki użytkownika z embeddingami
         notatki = self.session.query(Notatka)\
             .filter(
                 Notatka.telegram_user_id == telegram_user_id,
+                Notatka.deleted_at.is_(None),
                 Notatka.embedding.isnot(None)
             ).all()
 
@@ -497,6 +532,44 @@ class Database:
 
         # Zwróć top N wyników
         return results[:limit]
+
+    def soft_delete_notatka(self, notatka_id, telegram_user_id):
+        """
+        Usuwa notatkę (soft delete - ustawia deleted_at)
+
+        Args:
+            notatka_id: ID notatki
+            telegram_user_id: ID użytkownika (weryfikacja)
+
+        Returns:
+            True jeśli sukces, False jeśli nie znaleziono
+        """
+        notatka = self.get_notatka_by_id(notatka_id, telegram_user_id, include_deleted=False)
+
+        if notatka:
+            notatka.deleted_at = datetime.now()
+            self.session.commit()
+            return True
+        return False
+
+    def restore_notatka(self, notatka_id, telegram_user_id):
+        """
+        Przywraca usuniętą notatkę
+
+        Args:
+            notatka_id: ID notatki
+            telegram_user_id: ID użytkownika (weryfikacja)
+
+        Returns:
+            True jeśli sukces, False jeśli nie znaleziono
+        """
+        notatka = self.get_notatka_by_id(notatka_id, telegram_user_id, include_deleted=True)
+
+        if notatka and notatka.deleted_at:
+            notatka.deleted_at = None
+            self.session.commit()
+            return True
+        return False
 
     def close(self):
         """Zamyka połączenie z bazą"""

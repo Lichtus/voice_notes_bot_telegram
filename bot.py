@@ -324,8 +324,17 @@ async def show_note_preview(update: Update, user_id: int):
     else:
         zadania_text = "\n📋 *ZADANIA:* brak"
 
+    # Emoji kategorii
+    kategoria_emoji = {
+        "Praca": "💼",
+        "Dom": "🏠",
+        "Inne": "📌"
+    }
+    kategoria_icon = kategoria_emoji.get(note.get("kategoria", "Inne"), "📌")
+
     message = (
         "✅ *Notatka przetworzona!*\n\n"
+        f"{kategoria_icon} *KATEGORIA:* {note.get('kategoria', 'Inne')}\n\n"
         f"📌 *TEMAT:*\n{note['temat']}\n\n"
         f"📝 *OPIS:*\n{note['opis']}"
         f"{zadania_text}\n"
@@ -508,6 +517,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_notes[user_id]["temat"] = structure["temat"]
             pending_notes[user_id]["opis"] = structure["opis"]
             pending_notes[user_id]["zadania"] = structure["zadania"]
+            pending_notes[user_id]["kategoria"] = structure["kategoria"]
             pending_notes[user_id]["embedding"] = embedding
             pending_notes[user_id]["cost_data"] = {
                 "audio_duration_seconds": total_duration,
@@ -601,7 +611,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
                 photo_file_ids=note["photos"] if note["photos"] else None,
-                cost_data=note.get("cost_data")  # Dane o kosztach API
+                cost_data=note.get("cost_data"),  # Dane o kosztach API
+                kategoria=note.get("kategoria", "Inne")
             )
 
             await query.edit_message_text("📝 Zapisuję notatkę i generuję PDF...", parse_mode='Markdown')
@@ -689,7 +700,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
                 photo_file_ids=note["photos"] if note["photos"] else None,
-                cost_data=note.get("cost_data")  # Dane o kosztach API
+                cost_data=note.get("cost_data"),  # Dane o kosztach API
+                kategoria=note.get("kategoria", "Inne")
             )
             del pending_notes[user_id]
 
@@ -732,7 +744,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
                 photo_file_ids=note["photos"] if note["photos"] else None,
-                cost_data=note.get("cost_data")  # Dane o kosztach API
+                cost_data=note.get("cost_data"),  # Dane o kosztach API
+                kategoria=note.get("kategoria", "Inne")
             )
             del pending_notes[user_id]
 
