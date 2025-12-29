@@ -498,6 +498,105 @@ def update_note_category(note_id):
         return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
 
 
+@app.route('/tasks')
+@login_required
+def tasks_list():
+    """Lista wszystkich zadań użytkownika"""
+    from database import Notatka, Zadanie
+
+    telegram_user_id = session.get('telegram_user_id')
+
+    # Pobierz parametry filtrowania
+    status_filter = request.args.get('status', 'all', type=str)
+    sort_by = request.args.get('sort', 'note_date_desc', type=str)
+
+    # Buduj zapytanie - zadania z aktywnych notatek użytkownika
+    query = db.session.query(Zadanie)\
+        .join(Notatka)\
+        .filter(
+            Notatka.telegram_user_id == telegram_user_id,
+            Notatka.deleted_at.is_(None)
+        )
+
+    # Filtrowanie po statusie
+    if status_filter == 'completed':
+        query = query.filter(Zadanie.wykonane == True)
+    elif status_filter == 'pending':
+        query = query.filter(Zadanie.wykonane == False)
+
+    # Sortowanie
+    if sort_by == 'note_date_desc':
+        query = query.order_by(Notatka.data_utworzenia.desc())
+    elif sort_by == 'note_date_asc':
+        query = query.order_by(Notatka.data_utworzenia.asc())
+    elif sort_by == 'completion_date':
+        query = query.order_by(Zadanie.data_wykonania.desc().nullslast())
+    elif sort_by == 'task_id':
+        query = query.order_by(Zadanie.id.asc())
+
+    # Pobierz wszystkie zadania
+    tasks = query.all()
+
+    # Przygotuj dane dla szablonu
+    tasks_data = []
+    for task in tasks:
+        tasks_data.append({
+            'id': task.id,
+            'zadanie': task.zadanie,
+            'wykonane': task.wykonane,
+            'data_wykonania': task.data_wykonania,
+            'notatka_id': task.notatka.id,
+            'notatka_temat': task.notatka.temat,
+            'notatka_data': task.notatka.data_utworzenia,
+            'notatka_kategoria': task.notatka.kategoria
+        })
+
+    # Statystyki
+    total_tasks = len(tasks_data)
+    completed_tasks = sum(1 for t in tasks_data if t['wykonane'])
+    pending_tasks = total_tasks - completed_tasks
+
+    return render_template('tasks_list.html',
+                         tasks=tasks_data,
+                         status_filter=status_filter,
+                         sort_by=sort_by,
+                         total_tasks=total_tasks,
+                         completed_tasks=completed_tasks,
+                         pending_tasks=pending_tasks,
+                         user=session)
+
+
+@app.route('/tasks/<int:task_id>/toggle', methods=['POST'])
+@login_required
+def toggle_task(task_id):
+    """Przełącza status zadania (wykonane/niewykonane)"""
+    from database import Zadanie, Notatka
+
+    telegram_user_id = session.get('telegram_user_id')
+
+    # Znajdź zadanie i sprawdź czy należy do użytkownika
+    task = db.session.query(Zadanie)\
+        .join(Notatka)\
+        .filter(
+            Zadanie.id == task_id,
+            Notatka.telegram_user_id == telegram_user_id,
+            Notatka.deleted_at.is_(None)
+        ).first()
+
+    if not task:
+        return "Zadanie nie znalezione lub nie masz do niego dostępu", 404
+
+    # Przełącz status
+    task.wykonane = not task.wykonane
+    task.data_wykonania = datetime.now() if task.wykonane else None
+    db.session.commit()
+
+    # Przekieruj z powrotem do listy zadań
+    return redirect(url_for('tasks_list',
+                           status=request.form.get('status_filter', 'all'),
+                           sort=request.form.get('sort_by', 'note_date_desc')))
+
+
 def generate_email_html(note, base_url=None):
     """Generuje pięknie sformatowany HTML dla emaila"""
     # Formatuj zadania

@@ -14,6 +14,7 @@
                 <span class="user-name">👤 {{ user.first_name }}{% if user.username %} (@{{ user.username }}){% endif %}</span>
             </div>
             <div class="user-actions">
+                <a href="{{ url_for('tasks_list') }}" class="btn">📋 Zadania</a>
                 <a href="{{ url_for('logout') }}" class="btn btn-logout">🚪 Wyloguj</a>
             </div>
         </div>
