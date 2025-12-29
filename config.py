@@ -25,9 +25,10 @@ EXTRACTION_PROMPT = """Przeanalizuj poniższą transkrypcję notatki głosowej i
 2. OPIS (szczegółowy opis tego co użytkownik powiedział)
 3. ZADANIA (lista konkretnych akcji do wykonania, jeśli są w notatce)
 4. KATEGORIA (oceń do jakiej kategorii należy notatka):
-   - "Praca" - sprawy zawodowe, projekty, spotkania służbowe, zadania biznesowe
-   - "Dom" - sprawy domowe, rodzinne, osobiste, zakupy, hobby
+   - "Praca" - sprawy służbowe. Wskazówki słów kluczowych: Kohl, klient, zespół, projekt, spotkanie, raport, prezentacja, deadline, szef, praca, biuro, firma
+   - "Dom" - sprawy prywatne/rodzinne. Wskazówki słów kluczowych: córka, żona, zakupy, syn, mama, tata, urlop, rodzina, dom, wakacje, dziecko, małżonka, teściowa, dziadek, babcia
    - "Inne" - wszystko inne lub gdy kategoria nie jest jasna
+5. CONFIDENCE (pewność klasyfikacji kategorii jako liczba 0-1, gdzie 1 = bardzo pewny, 0.5 = średnio pewny, 0 = niepewny)
 
 Transkrypcja:
 "{transcription}"
@@ -37,11 +38,15 @@ Odpowiedz TYLKO w formacie JSON, bez dodatkowych komentarzy:
   "temat": "krótki tytuł notatki",
   "opis": "szczegółowy opis",
   "zadania": ["zadanie 1", "zadanie 2"],
-  "kategoria": "Praca/Dom/Inne"
+  "kategoria": "Praca/Dom/Inne",
+  "confidence": 0.85
 }}
 
-Jeśli nie ma zadań w notatce, zwróć pustą listę: "zadania": []
-Kategoria musi być jedną z trzech wartości: "Praca", "Dom", "Inne"
+WAŻNE:
+- Jeśli nie ma zadań w notatce, zwróć pustą listę: "zadania": []
+- Kategoria musi być jedną z trzech wartości: "Praca", "Dom", "Inne"
+- Confidence musi być liczbą od 0 do 1 (np. 0.85, 0.6, 0.95)
+- Obecność słów kluczowych zwiększa pewność klasyfikacji
 """
 
 def validate_config():

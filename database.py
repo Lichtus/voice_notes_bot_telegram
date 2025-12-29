@@ -45,6 +45,8 @@ class Notatka(Base):
     cost_gpt_output_usd = Column(Text, nullable=True)  # Koszt GPT output w USD
     cost_embedding_usd = Column(Text, nullable=True)  # Koszt embedding w USD
     cost_total_usd = Column(Text, nullable=True)  # Łączny koszt w USD
+    processing_time = Column(Text, nullable=True)  # Czas procesowania w sekundach
+    auto_category_confidence = Column(Text, nullable=True)  # Pewność automatycznej klasyfikacji (0-1)
 
     # Relacja do zadań
     zadania = relationship("Zadanie", back_populates="notatka", cascade="all, delete-orphan")
@@ -145,6 +147,8 @@ class Database:
                 "cost_gpt_output_usd": str(cost_data.get("cost_gpt_output_usd", 0)),
                 "cost_embedding_usd": str(cost_data.get("cost_embedding_usd", 0)),
                 "cost_total_usd": str(cost_data.get("cost_total_usd", 0)),
+                "processing_time": str(cost_data.get("processing_time", 0)) if cost_data.get("processing_time") else None,
+                "auto_category_confidence": str(cost_data.get("auto_category_confidence", 0)) if cost_data.get("auto_category_confidence") else None,
             }
 
         notatka = Notatka(
