@@ -9,9 +9,21 @@
 <body>
     <div class="container">
         <header>
-            <a href="{{ url_for('notes_list') }}" class="back-link">← Powrót do listy</a>
+            <div class="header-top">
+                <a href="{{ url_for('notes_list') }}" class="back-link">← Powrót do listy</a>
+                <div class="header-actions">
+                    <a href="{{ url_for('prepare_email', note_id=note.id) }}" class="btn btn-email" title="Wyślij mailem">
+                        📧 Wyślij mailem
+                    </a>
+                </div>
+            </div>
             <h1>{{ note.temat }}</h1>
-            <p class="subtitle">{{ note.data_utworzenia.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+            <div class="note-metadata">
+                <p class="subtitle">📅 Utworzono: {{ note.data_utworzenia.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                {% if note.is_edited and note.edit_date %}
+                <p class="edit-info">✏️ Ostatnia edycja: {{ note.edit_date }}</p>
+                {% endif %}
+            </div>
         </header>
 
         <main class="note-detail">
@@ -26,19 +38,24 @@
             <!-- Zadania -->
             {% if note.zadania %}
             <section class="section">
-                <h2>📋 Zadania</h2>
+                <h2>📋 Zadania ({{ note.zadania|length }})</h2>
                 <ul class="task-list">
                     {% for zadanie in note.zadania %}
-                    <li class="task-item">{{ zadanie }}</li>
+                    <li class="task-item">☐ {{ zadanie }}</li>
                     {% endfor %}
                 </ul>
+            </section>
+            {% else %}
+            <section class="section">
+                <h2>📋 Zadania</h2>
+                <p class="empty-message"><em>Brak zadań w tej notatce</em></p>
             </section>
             {% endif %}
 
             <!-- Zdjęcia -->
             {% if note.has_photos %}
             <section class="section">
-                <h2>📸 Zdjęcia</h2>
+                <h2>📸 Zdjęcia ({{ note.photo_file_ids|length }})</h2>
                 <div class="photos-grid">
                     {% for i in range(note.photo_file_ids|length) %}
                     <div class="photo-item">
@@ -64,6 +81,7 @@
 
         <footer>
             <a href="{{ url_for('notes_list') }}" class="btn">← Powrót do listy</a>
+            <a href="{{ url_for('prepare_email', note_id=note.id) }}" class="btn btn-email">📧 Wyślij mailem</a>
         </footer>
     </div>
 </body>
