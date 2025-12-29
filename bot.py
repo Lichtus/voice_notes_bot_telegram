@@ -246,8 +246,8 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         await update.message.reply_text(f"🔍 Szukam notatek dla: *\"{search_query}\"*", parse_mode='Markdown')
 
-        # Generuj embedding dla query
-        query_embedding = ai.get_embedding(search_query)
+        # Generuj embedding dla query (get_embedding zwraca tuple: (embedding, tokens))
+        query_embedding, _ = ai.get_embedding(search_query)
 
         # Wyszukiwanie semantyczne
         results = db.semantic_search(user_id, query_embedding, limit=5)
