@@ -2,6 +2,7 @@
 Telegram Bot do notatek głosowych z automatyczną ekstrakcją struktury przez AI
 """
 import logging
+import os
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
