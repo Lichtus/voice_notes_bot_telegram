@@ -177,9 +177,9 @@
                     </thead>
                     <tbody>
                         {% for task in tasks %}
-                        <tr>
+                        <tr id="task-{{ task.id }}">
                             <td>
-                                <form method="POST" action="{{ url_for('toggle_task', task_id=task.id) }}" style="margin: 0;">
+                                <form method="POST" action="{{ url_for('toggle_task', task_id=task.id) }}" style="margin: 0;" onsubmit="saveScrollPosition()">
                                     <input type="hidden" name="status_filter" value="{{ status_filter }}">
                                     <input type="hidden" name="sort_by" value="{{ sort_by }}">
                                     <input type="checkbox"
@@ -233,5 +233,22 @@
             <a href="{{ url_for('notes_list') }}" class="btn">← Powrót do notatek</a>
         </footer>
     </div>
+
+    <script>
+        // Zapisz pozycję scrollowania przed submitem formularza
+        function saveScrollPosition() {
+            sessionStorage.setItem('tasksScrollPosition', window.scrollY);
+        }
+
+        // Przywróć pozycję scrollowania po załadowaniu strony
+        window.addEventListener('load', function() {
+            const scrollPosition = sessionStorage.getItem('tasksScrollPosition');
+            if (scrollPosition !== null) {
+                window.scrollTo(0, parseInt(scrollPosition));
+                // Wyczyść zapisaną pozycję
+                sessionStorage.removeItem('tasksScrollPosition');
+            }
+        });
+    </script>
 </body>
 </html>
