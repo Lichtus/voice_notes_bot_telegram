@@ -106,29 +106,25 @@ def notes_list():
         query = query.order_by(Notatka.temat.asc())
     elif sort_by == 'title_desc':
         query = query.order_by(Notatka.temat.desc())
+    elif sort_by in ['tasks_desc', 'tasks_asc']:
+        # Dla sortowania po zadaniach, jeśli nie filtrujemy już po zadaniach
+        if tasks_filter not in ['with_tasks', 'without_tasks', 'with_incomplete']:
+            # Musimy zrobić LEFT JOIN i GROUP BY
+            query = query.outerjoin(Zadanie, Notatka.id == Zadanie.notatka_id)
+            query = query.group_by(Notatka.id)
 
-    # Dla sortowania po zadaniach musimy policzyć zadania
-    if sort_by in ['tasks_desc', 'tasks_asc']:
-        # Używamy subquery do policzenia zadań
-        from sqlalchemy import select
-        task_count = select([func.count(Zadanie.id)]).where(Zadanie.notatka_id == Notatka.id).label('task_count')
-        query = query.add_columns(task_count)
+        # Sortuj po liczbie zadań
         if sort_by == 'tasks_desc':
-            query = query.order_by(task_count.desc())
+            query = query.order_by(func.count(Zadanie.id).desc())
         else:
-            query = query.order_by(task_count.asc())
+            query = query.order_by(func.count(Zadanie.id).asc())
 
     # Paginacja
     total_notes = query.count()
     total_pages = (total_notes + per_page - 1) // per_page
 
     # Pobierz notatki
-    if sort_by in ['tasks_desc', 'tasks_asc']:
-        # Dla sortowania po zadaniach mamy tuple (note, count)
-        results = query.offset((page - 1) * per_page).limit(per_page).all()
-        notes = [r[0] if isinstance(r, tuple) else r for r in results]
-    else:
-        notes = query.offset((page - 1) * per_page).limit(per_page).all()
+    notes = query.offset((page - 1) * per_page).limit(per_page).all()
 
     # Przygotuj dane notatek
     notes_data = []
@@ -207,7 +203,7 @@ def note_detail(note_id):
     return render_template('note_detail.html', note=note_data)
 
 
-def generate_email_html(note):
+def generate_email_html(note, base_url=None):
     """Generuje pięknie sformatowany HTML dla emaila"""
     # Formatuj zadania
     zadania_html = ""
@@ -218,6 +214,22 @@ def generate_email_html(note):
         zadania_html += "</div>"
     else:
         zadania_html = "<p><em>Brak zadań</em></p>"
+
+    # Formatuj zdjęcia
+    photos_html = ""
+    if note.get('photo_file_ids') and base_url:
+        photos_html = """
+        <div class="section">
+            <h2>📷 Zdjęcia</h2>
+            <div class="photos">"""
+        for i in range(len(note['photo_file_ids'])):
+            photo_url = f"{base_url}notes/{note['id']}/photo/{i}"
+            photos_html += f"""
+                <img src="{photo_url}" alt="Zdjęcie {i+1}"
+                     style="max-width: 100%; height: auto; margin: 10px 0; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">"""
+        photos_html += """
+            </div>
+        </div>"""
 
     # Formatuj datę
     data_str = note['data_utworzenia'].strftime("%d.%m.%Y %H:%M")
@@ -325,6 +337,8 @@ def generate_email_html(note):
             <h2>📋 Zadania</h2>
             {zadania_html}
         </div>
+
+        {photos_html}
     </div>
 
     <div class="footer">
@@ -360,18 +374,23 @@ def prepare_email(note_id):
         if match:
             edit_date = match.group(1)
 
+    # Pobierz photo_file_ids
+    photo_file_ids = json.loads(note.photo_file_ids) if note.photo_file_ids else []
+
     note_data = {
         'id': note.id,
         'temat': note.temat,
         'opis': note.opis,
         'data_utworzenia': note.data_utworzenia,
         'zadania': zadania_list,
+        'photo_file_ids': photo_file_ids,
         'is_edited': is_edited,
         'edit_date': edit_date
     }
 
-    # Generuj HTML
-    html_body = generate_email_html(note_data)
+    # Generuj HTML z URL bazowym dla zdjęć
+    base_url = request.host_url  # np. "http://localhost:5000/"
+    html_body = generate_email_html(note_data, base_url)
 
     # Przygotuj mailto link
     subject = f"Notatka: {note.temat}"
