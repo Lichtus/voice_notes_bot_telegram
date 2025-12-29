@@ -8,8 +8,11 @@ import os
 import logging
 from datetime import datetime
 import json
+import hashlib
+import hmac
+from functools import wraps
 
-from flask import Flask, render_template, request, Response
+from flask import Flask, render_template, request, Response, session, redirect, url_for
 from dotenv import load_dotenv
 
 # Import modułów bota
@@ -19,6 +22,7 @@ from database import Database
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv('WEB_SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Konfiguracja logowania
 logging.basicConfig(
@@ -32,20 +36,129 @@ db = Database()
 
 # Telegram Bot Token (do pobierania zdjęć)
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_BOT_USERNAME = 'Lichtus_notes_bot'
 
+
+# ============================================
+# TELEGRAM LOGIN - AUTHENTICATION
+# ============================================
+
+def verify_telegram_auth(auth_data):
+    """
+    Weryfikuje autentyczność danych z Telegram Login Widget
+    Zgodnie z: https://core.telegram.org/widgets/login#checking-authorization
+    """
+    check_hash = auth_data.get('hash')
+    if not check_hash:
+        return False
+
+    # Usuń hash z danych
+    auth_data_copy = {k: v for k, v in auth_data.items() if k != 'hash'}
+
+    # Sortuj klucze i utwórz string do weryfikacji
+    data_check_arr = [f"{k}={v}" for k, v in sorted(auth_data_copy.items())]
+    data_check_string = '\n'.join(data_check_arr)
+
+    # Oblicz hash
+    secret_key = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).digest()
+    calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    # Porównaj hash
+    if calculated_hash != check_hash:
+        logger.warning("Invalid Telegram auth hash")
+        return False
+
+    # Sprawdź czy dane nie są starsze niż 24h
+    auth_date = int(auth_data.get('auth_date', 0))
+    current_timestamp = int(datetime.now().timestamp())
+
+    if current_timestamp - auth_date > 86400:  # 24 godziny
+        logger.warning("Telegram auth data too old")
+        return False
+
+    return True
+
+
+def login_required(f):
+    """Dekorator wymagający zalogowania przez Telegram"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'telegram_user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ============================================
+# AUTHENTICATION ROUTES
+# ============================================
+
+@app.route('/login')
+def login():
+    """Strona logowania przez Telegram"""
+    # Jeśli użytkownik już zalogowany, przekieruj do notatek
+    if 'telegram_user_id' in session:
+        return redirect(url_for('notes_list'))
+
+    return render_template('login.html',
+                         bot_username=TELEGRAM_BOT_USERNAME,
+                         auth_url=url_for('telegram_auth', _external=True))
+
+
+@app.route('/auth/telegram')
+def telegram_auth():
+    """Callback po zalogowaniu przez Telegram Widget"""
+    # Pobierz wszystkie parametry z query string
+    auth_data = request.args.to_dict()
+
+    # Weryfikuj autentyczność danych
+    if not verify_telegram_auth(auth_data):
+        logger.error("Telegram authentication failed")
+        return "Authentication failed. Invalid or expired data.", 403
+
+    # Zapisz dane użytkownika w sesji
+    session['telegram_user_id'] = int(auth_data.get('id'))
+    session['first_name'] = auth_data.get('first_name', '')
+    session['last_name'] = auth_data.get('last_name', '')
+    session['username'] = auth_data.get('username', '')
+    session['photo_url'] = auth_data.get('photo_url', '')
+
+    logger.info(f"User logged in: {session['first_name']} (ID: {session['telegram_user_id']})")
+
+    # Przekieruj do strony z notatkami
+    return redirect(url_for('notes_list'))
+
+
+@app.route('/logout')
+def logout():
+    """Wylogowanie użytkownika"""
+    user_name = session.get('first_name', 'Unknown')
+    session.clear()
+    logger.info(f"User logged out: {user_name}")
+    return redirect(url_for('login'))
+
+
+# ============================================
+# NOTES ROUTES
+# ============================================
 
 @app.route('/')
+@login_required
 def index():
     """Strona główna - przekierowanie do notatek"""
-    return notes_list()
+    return redirect(url_for('notes_list'))
 
 
 @app.route('/notes')
+@login_required
 def notes_list():
     """Lista wszystkich notatek z wyszukiwaniem, filtrowaniem i sortowaniem"""
     from database import Notatka, Zadanie
     from sqlalchemy import func, or_
     from datetime import timedelta
+
+    # Pobierz zalogowanego użytkownika
+    telegram_user_id = session.get('telegram_user_id')
 
     # Pobierz parametry z URL
     page = request.args.get('page', 1, type=int)
@@ -55,8 +168,8 @@ def notes_list():
     tasks_filter = request.args.get('tasks_filter', 'all', type=str)
     sort_by = request.args.get('sort', 'date_desc', type=str)
 
-    # Buduj zapytanie
-    query = db.session.query(Notatka)
+    # Buduj zapytanie - TYLKO notatki zalogowanego użytkownika
+    query = db.session.query(Notatka).filter(Notatka.telegram_user_id == telegram_user_id)
 
     # Wyszukiwanie
     if search:
@@ -161,17 +274,27 @@ def notes_list():
                          search=search,
                          date_filter=date_filter,
                          tasks_filter=tasks_filter,
-                         sort_by=sort_by)
+                         sort_by=sort_by,
+                         user=session)
 
 
 @app.route('/notes/<int:note_id>')
+@login_required
 def note_detail(note_id):
     """Szczegóły pojedynczej notatki"""
     from database import Notatka
-    note = db.session.query(Notatka).filter_by(id=note_id).first()
+
+    # Pobierz zalogowanego użytkownika
+    telegram_user_id = session.get('telegram_user_id')
+
+    # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
+    note = db.session.query(Notatka).filter_by(
+        id=note_id,
+        telegram_user_id=telegram_user_id
+    ).first()
 
     if not note:
-        return "Notatka nie znaleziona", 404
+        return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
 
     # Przygotuj dane - note.zadania to relacja ORM do obiektów Zadanie
     zadania_list = [z.zadanie for z in note.zadania] if note.zadania else []
@@ -200,7 +323,7 @@ def note_detail(note_id):
         'edit_date': edit_date
     }
 
-    return render_template('note_detail.html', note=note_data)
+    return render_template('note_detail.html', note=note_data, user=session)
 
 
 def generate_email_html(note, base_url=None):
@@ -352,15 +475,23 @@ def generate_email_html(note, base_url=None):
 
 
 @app.route('/notes/<int:note_id>/email')
+@login_required
 def prepare_email(note_id):
     """Przygotuj mailto link z notatką"""
     import urllib.parse
     from database import Notatka
 
-    note = db.session.query(Notatka).filter_by(id=note_id).first()
+    # Pobierz zalogowanego użytkownika
+    telegram_user_id = session.get('telegram_user_id')
+
+    # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
+    note = db.session.query(Notatka).filter_by(
+        id=note_id,
+        telegram_user_id=telegram_user_id
+    ).first()
 
     if not note:
-        return "Notatka nie znaleziona", 404
+        return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
 
     # Przygotuj dane notatki
     zadania_list = [z.zadanie for z in note.zadania] if note.zadania else []
@@ -424,15 +555,23 @@ ZADANIA:
 
 
 @app.route('/notes/<int:note_id>/photo/<int:photo_index>')
+@login_required
 def get_photo(note_id, photo_index):
     """Pobierz zdjęcie z Telegram i wyślij jako odpowiedź"""
     import requests
     from database import Notatka
 
-    note = db.session.query(Notatka).filter_by(id=note_id).first()
+    # Pobierz zalogowanego użytkownika
+    telegram_user_id = session.get('telegram_user_id')
+
+    # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
+    note = db.session.query(Notatka).filter_by(
+        id=note_id,
+        telegram_user_id=telegram_user_id
+    ).first()
 
     if not note or not note.photo_file_ids:
-        return "Zdjęcie nie znalezione", 404
+        return "Zdjęcie nie znalezione lub nie masz do niego dostępu", 404
 
     photo_file_ids = json.loads(note.photo_file_ids)
 

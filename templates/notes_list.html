@@ -8,6 +8,16 @@
 </head>
 <body>
     <div class="container">
+        <!-- User Header -->
+        <div class="user-header">
+            <div class="user-info">
+                <span class="user-name">👤 {{ user.first_name }}{% if user.username %} (@{{ user.username }}){% endif %}</span>
+            </div>
+            <div class="user-actions">
+                <a href="{{ url_for('logout') }}" class="btn btn-logout">🚪 Wyloguj</a>
+            </div>
+        </div>
+
         <header>
             <h1>📝 Moje Notatki</h1>
             <p class="subtitle">Łącznie: {{ total_notes }} notatek</p>
