@@ -55,9 +55,62 @@ def check_user_allowed(func):
     return wrapper
 
 
+async def handle_webapp_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler logowania do aplikacji webowej"""
+    import random
+    import requests
+
+    user = update.effective_user
+    user_id = user.id
+
+    # Generuj 6-cyfrowy kod
+    code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+    # Wyślij kod do użytkownika
+    await update.message.reply_text(
+        f"🔐 *Kod weryfikacyjny do logowania w aplikacji webowej:*\n\n"
+        f"`{code}`\n\n"
+        f"*Twój Telegram User ID:*\n`{user_id}`\n\n"
+        f"📱 Wpisz te dane na stronie logowania.\n"
+        f"⏱️ Kod ważny przez 5 minut.",
+        parse_mode='Markdown'
+    )
+
+    # Wyślij kod do web_app przez API
+    try:
+        # Pobierz URL aplikacji webowej (zakładamy localhost:5000, można to zmienić w .env)
+        web_app_url = os.getenv('WEB_APP_URL', 'http://localhost:5000')
+
+        response = requests.post(
+            f"{web_app_url}/api/store-code",
+            json={
+                'user_id': user_id,
+                'code': code,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'username': user.username
+            },
+            timeout=5
+        )
+
+        if response.status_code == 200:
+            logger.info(f"Login code sent to web app for user {user_id}")
+        else:
+            logger.error(f"Failed to send code to web app: {response.status_code}")
+
+    except Exception as e:
+        logger.error(f"Error sending code to web app: {e}")
+        # Nie pokazuj błędu użytkownikowi - kod i tak dostał
+
+
 @check_user_allowed
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler komendy /start"""
+    # Sprawdź czy jest parametr webapp_login
+    if context.args and len(context.args) > 0 and context.args[0] == 'webapp_login':
+        await handle_webapp_login(update, context)
+        return
+
     await update.message.reply_text(
         "🎙️ *Witaj w Voice Notes Bot!*\n\n"
         "📝 *Dodawanie notatek:*\n"
