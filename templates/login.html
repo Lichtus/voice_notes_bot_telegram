@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logowanie - Voice Notes Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-box {
+            background: white;
+            padding: 50px 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .login-box h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 32px;
+        }
+
+        .login-box .subtitle {
+            color: #666;
+            margin: 0 0 40px 0;
+            font-size: 16px;
+        }
+
+        .login-box .info {
+            color: #666;
+            margin: 20px 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .telegram-widget-container {
+            display: flex;
+            justify-content: center;
+            margin: 30px 0;
+        }
+
+        .features {
+            margin-top: 40px;
+            text-align: left;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .features h3 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+            font-size: 18px;
+        }
+
+        .features ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .features li {
+            margin: 8px 0;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <h1>📝 Voice Notes Bot</h1>
+            <p class="subtitle">Aplikacja do zarządzania notatkami głosowymi</p>
+
+            <p class="info">
+                Zaloguj się przez Telegram, aby uzyskać dostęp do swoich notatek.
+            </p>
+
+            <!-- Telegram Login Widget -->
+            <div class="telegram-widget-container">
+                <script async src="https://telegram.org/js/telegram-widget.js?22"
+                        data-telegram-login="{{ bot_username }}"
+                        data-size="large"
+                        data-auth-url="{{ auth_url }}"
+                        data-request-access="write">
+                </script>
+            </div>
+
+            <div class="features">
+                <h3>✨ Funkcje aplikacji:</h3>
+                <ul>
+                    <li>🔍 Wyszukiwanie i filtrowanie notatek</li>
+                    <li>📋 Zarządzanie zadaniami</li>
+                    <li>📷 Przeglądanie zdjęć</li>
+                    <li>📧 Wysyłanie notatek mailem</li>
+                    <li>🔒 Bezpieczny dostęp przez Telegram</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
