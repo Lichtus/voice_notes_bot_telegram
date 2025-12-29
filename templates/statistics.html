@@ -11,7 +11,7 @@
         <!-- User Header -->
         <div class="user-header">
             <div class="user-info">
-                <span class="user-name">👤 Jan Kowalski (@jkowalski)</span>
+                <span class="user-name">👤 {{ user.first_name }}{% if user.username %} (@{{ user.username }}){% endif %}</span>
             </div>
             <div class="user-actions">
                 <a href="{{ url_for('notes_list') }}" class="btn">📝 Notatki</a>
@@ -37,23 +37,23 @@
                         <div class="stat-icon">💵</div>
                         <div class="stat-content">
                             <div class="stat-label">Łączny koszt</div>
-                            <div class="stat-value">$12.45</div>
-                            <div class="stat-trend positive">↓ 15% vs. poprzedni miesiąc</div>
+                            <div class="stat-value">${{ "%.2f"|format(stats.total_cost) }}</div>
+                            <div class="stat-trend">wszystkie notatki</div>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">📝</div>
                         <div class="stat-content">
                             <div class="stat-label">Liczba notatek</div>
-                            <div class="stat-value">247</div>
-                            <div class="stat-trend positive">↑ 23 w tym miesiącu</div>
+                            <div class="stat-value">{{ stats.total_notes }}</div>
+                            <div class="stat-trend">{% if stats.total_notes > 0 %}aktywnych{% else %}brak notatek{% endif %}</div>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">💎</div>
                         <div class="stat-content">
                             <div class="stat-label">Średni koszt</div>
-                            <div class="stat-value">$0.050</div>
+                            <div class="stat-value">${{ "%.3f"|format(stats.avg_cost) }}</div>
                             <div class="stat-trend">na notatkę</div>
                         </div>
                     </div>
@@ -61,8 +61,8 @@
                         <div class="stat-icon">🔢</div>
                         <div class="stat-content">
                             <div class="stat-label">Łączne tokeny</div>
-                            <div class="stat-value">487,234</div>
-                            <div class="stat-trend">~1,972 na notatkę</div>
+                            <div class="stat-value">{{ "{:,}".format(stats.total_tokens) }}</div>
+                            <div class="stat-trend">{% if stats.total_notes > 0 %}~{{ (stats.total_tokens / stats.total_notes)|int }} na notatkę{% endif %}</div>
                         </div>
                     </div>
                 </div>
@@ -72,31 +72,29 @@
             <section class="stats-section">
                 <h2 class="stats-heading">📂 Podział Kategorii Notatek</h2>
                 <div class="stats-grid-2col">
-                    <!-- Wykres kołowy (mockup) -->
+                    <!-- Wykres kołowy -->
                     <div class="chart-container">
-                        <div class="pie-chart-placeholder">
-                            <div class="pie-segment praca" style="--percentage: 45%">
-                                <span class="pie-label">45%</span>
-                            </div>
-                            <div class="pie-segment dom" style="--percentage: 35%">
-                                <span class="pie-label">35%</span>
-                            </div>
-                            <div class="pie-segment inne" style="--percentage: 20%">
-                                <span class="pie-label">20%</span>
-                            </div>
+                        {% set praca_pct = stats.category_data.get('Praca', {}).get('percentage', 0) %}
+                        {% set dom_pct = stats.category_data.get('Dom', {}).get('percentage', 0) %}
+                        {% set inne_pct = stats.category_data.get('Inne', {}).get('percentage', 0) %}
+                        <div class="pie-chart-placeholder" style="background: conic-gradient(
+                            #0078D4 0% {{ praca_pct }}%,
+                            #107C10 {{ praca_pct }}% {{ praca_pct + dom_pct }}%,
+                            #8A8886 {{ praca_pct + dom_pct }}% 100%
+                        );">
                         </div>
                         <div class="chart-legend">
                             <div class="legend-item">
                                 <span class="legend-color praca-color"></span>
-                                <span class="legend-text">💼 Praca (Służbowe)</span>
+                                <span class="legend-text">💼 Praca ({{ "%.0f"|format(praca_pct) }}%)</span>
                             </div>
                             <div class="legend-item">
                                 <span class="legend-color dom-color"></span>
-                                <span class="legend-text">🏠 Dom (Prywatne)</span>
+                                <span class="legend-text">🏠 Dom ({{ "%.0f"|format(dom_pct) }}%)</span>
                             </div>
                             <div class="legend-item">
                                 <span class="legend-color inne-color"></span>
-                                <span class="legend-text">📌 Inne</span>
+                                <span class="legend-text">📌 Inne ({{ "%.0f"|format(inne_pct) }}%)</span>
                             </div>
                         </div>
                     </div>
@@ -115,29 +113,29 @@
                             <tbody>
                                 <tr>
                                     <td>💼 Praca</td>
-                                    <td><strong>111</strong></td>
-                                    <td>45%</td>
-                                    <td>$5.67</td>
+                                    <td><strong>{{ stats.category_data.get('Praca', {}).get('count', 0) }}</strong></td>
+                                    <td>{{ "%.0f"|format(praca_pct) }}%</td>
+                                    <td>${{ "%.2f"|format(stats.category_data.get('Praca', {}).get('cost', 0)) }}</td>
                                 </tr>
                                 <tr>
                                     <td>🏠 Dom</td>
-                                    <td><strong>86</strong></td>
-                                    <td>35%</td>
-                                    <td>$4.23</td>
+                                    <td><strong>{{ stats.category_data.get('Dom', {}).get('count', 0) }}</strong></td>
+                                    <td>{{ "%.0f"|format(dom_pct) }}%</td>
+                                    <td>${{ "%.2f"|format(stats.category_data.get('Dom', {}).get('cost', 0)) }}</td>
                                 </tr>
                                 <tr>
                                     <td>📌 Inne</td>
-                                    <td><strong>50</strong></td>
-                                    <td>20%</td>
-                                    <td>$2.55</td>
+                                    <td><strong>{{ stats.category_data.get('Inne', {}).get('count', 0) }}</strong></td>
+                                    <td>{{ "%.0f"|format(inne_pct) }}%</td>
+                                    <td>${{ "%.2f"|format(stats.category_data.get('Inne', {}).get('cost', 0)) }}</td>
                                 </tr>
                             </tbody>
                             <tfoot>
                                 <tr>
                                     <td><strong>RAZEM</strong></td>
-                                    <td><strong>247</strong></td>
+                                    <td><strong>{{ stats.total_notes }}</strong></td>
                                     <td><strong>100%</strong></td>
-                                    <td><strong>$12.45</strong></td>
+                                    <td><strong>${{ "%.2f"|format(stats.total_cost) }}</strong></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -152,29 +150,51 @@
                     <div class="stat-card compact">
                         <div class="stat-content">
                             <div class="stat-label">Średni czas reakcji</div>
-                            <div class="stat-value medium">2.3 dni</div>
+                            <div class="stat-value medium">
+                                {% if stats.avg_reaction_time > 0 %}
+                                    {{ "%.1f"|format(stats.avg_reaction_time) }} dni
+                                {% else %}
+                                    brak danych
+                                {% endif %}
+                            </div>
                             <div class="stat-sublabel">od utworzenia do wykonania</div>
                         </div>
                     </div>
                     <div class="stat-card compact">
                         <div class="stat-content">
                             <div class="stat-label">Najszybsze wykonanie</div>
-                            <div class="stat-value medium success">0.5h</div>
+                            <div class="stat-value medium success">
+                                {% if stats.fastest_time is not none %}
+                                    {% if stats.fastest_time < 1 %}
+                                        {{ "%.1f"|format(stats.fastest_time * 24) }}h
+                                    {% else %}
+                                        {{ "%.1f"|format(stats.fastest_time) }} dni
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </div>
                             <div class="stat-sublabel">rekord prędkości</div>
                         </div>
                     </div>
                     <div class="stat-card compact">
                         <div class="stat-content">
                             <div class="stat-label">Najdłuższe oczekiwanie</div>
-                            <div class="stat-value medium warning">45 dni</div>
+                            <div class="stat-value medium warning">
+                                {% if stats.slowest_time is not none %}
+                                    {{ "%.0f"|format(stats.slowest_time) }} dni
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </div>
                             <div class="stat-sublabel">do wykonania</div>
                         </div>
                     </div>
                     <div class="stat-card compact">
                         <div class="stat-content">
                             <div class="stat-label">Ukończone zadania</div>
-                            <div class="stat-value medium">68%</div>
-                            <div class="stat-sublabel">189 z 278 zadań</div>
+                            <div class="stat-value medium">{{ "%.0f"|format(stats.completion_rate) }}%</div>
+                            <div class="stat-sublabel">{{ stats.completed_tasks }} z {{ stats.total_tasks }} zadań</div>
                         </div>
                     </div>
                 </div>
@@ -183,18 +203,18 @@
                 <div class="task-progress-section">
                     <h3 class="subsection-title">Postęp wykonania zadań</h3>
                     <div class="progress-bar-container">
-                        <div class="progress-bar" style="width: 68%">
-                            <span class="progress-label">68% ukończone (189/278)</span>
+                        <div class="progress-bar" style="width: {{ stats.completion_rate }}%">
+                            <span class="progress-label">{{ "%.0f"|format(stats.completion_rate) }}% ukończone ({{ stats.completed_tasks }}/{{ stats.total_tasks }})</span>
                         </div>
                     </div>
                     <div class="task-breakdown">
                         <div class="breakdown-item">
                             <span class="breakdown-dot completed"></span>
-                            <span>Ukończone: 189</span>
+                            <span>Ukończone: {{ stats.completed_tasks }}</span>
                         </div>
                         <div class="breakdown-item">
                             <span class="breakdown-dot pending"></span>
-                            <span>Oczekujące: 89</span>
+                            <span>Oczekujące: {{ stats.pending_tasks }}</span>
                         </div>
                     </div>
                 </div>
@@ -215,86 +235,56 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td>1</td>
-                            <td><a href="#">Spotkanie z zespołem Kohl - planowanie Q1 2025</a></td>
-                            <td>💼 Praca</td>
-                            <td>2025-01-15</td>
-                            <td>4,523</td>
-                            <td><strong>$0.089</strong></td>
-                        </tr>
-                        <tr>
-                            <td>2</td>
-                            <td><a href="#">Analiza wyników klienta - raport miesięczny</a></td>
-                            <td>💼 Praca</td>
-                            <td>2025-01-12</td>
-                            <td>3,892</td>
-                            <td><strong>$0.076</strong></td>
-                        </tr>
-                        <tr>
-                            <td>3</td>
-                            <td><a href="#">Plan urlopu wakacyjnego z rodziną</a></td>
-                            <td>🏠 Dom</td>
-                            <td>2025-01-10</td>
-                            <td>3,234</td>
-                            <td><strong>$0.063</strong></td>
-                        </tr>
-                        <tr>
-                            <td>4</td>
-                            <td><a href="#">Zakupy na urodziny córki - pomysły</a></td>
-                            <td>🏠 Dom</td>
-                            <td>2025-01-08</td>
-                            <td>2,967</td>
-                            <td><strong>$0.058</strong></td>
-                        </tr>
-                        <tr>
-                            <td>5</td>
-                            <td><a href="#">Prezentacja dla klienta - key points</a></td>
-                            <td>💼 Praca</td>
-                            <td>2025-01-05</td>
-                            <td>2,845</td>
-                            <td><strong>$0.056</strong></td>
-                        </tr>
+                        {% if stats.top_notes %}
+                            {% for note in stats.top_notes %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td><a href="{{ url_for('note_detail', note_id=note.id) }}">{{ note.temat }}</a></td>
+                                <td>
+                                    {% if note.kategoria == 'Praca' %}💼 Praca
+                                    {% elif note.kategoria == 'Dom' %}🏠 Dom
+                                    {% else %}📌 Inne{% endif %}
+                                </td>
+                                <td>{{ note.data }}</td>
+                                <td>{{ "{:,}".format(note.tokens) }}</td>
+                                <td><strong>${{ "%.3f"|format(note.cost) }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="6" style="text-align: center; color: #8A8886; padding: 20px;">
+                                    <em>Brak notatek z danymi kosztów</em>
+                                </td>
+                            </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </section>
 
-            <!-- Sekcja 5: Wykres kosztów w czasie (mockup) -->
+            <!-- Sekcja 5: Wykres kosztów w czasie -->
             <section class="stats-section">
                 <h2 class="stats-heading">📈 Trend Kosztów w Czasie</h2>
                 <div class="bar-chart-container">
-                    <div class="bar-chart">
-                        <div class="bar-item">
-                            <div class="bar" style="height: 45%"></div>
-                            <div class="bar-label">Sty</div>
-                            <div class="bar-value">$4.50</div>
+                    {% if stats.monthly_costs %}
+                        {% set max_cost = stats.monthly_costs|map(attribute='cost')|max %}
+                        <div class="bar-chart">
+                            {% for month_data in stats.monthly_costs %}
+                            <div class="bar-item">
+                                {% if max_cost > 0 %}
+                                    <div class="bar" style="height: {{ (month_data.cost / max_cost * 100)|int }}%"></div>
+                                {% else %}
+                                    <div class="bar" style="height: 0%"></div>
+                                {% endif %}
+                                <div class="bar-label">{{ month_data.month }}</div>
+                                <div class="bar-value">${{ "%.2f"|format(month_data.cost) }}</div>
+                            </div>
+                            {% endfor %}
                         </div>
-                        <div class="bar-item">
-                            <div class="bar" style="height: 52%"></div>
-                            <div class="bar-label">Lut</div>
-                            <div class="bar-value">$5.20</div>
+                    {% else %}
+                        <div style="text-align: center; color: #8A8886; padding: 40px;">
+                            <p><em>Brak danych o kosztach miesięcznych</em></p>
                         </div>
-                        <div class="bar-item">
-                            <div class="bar" style="height: 38%"></div>
-                            <div class="bar-label">Mar</div>
-                            <div class="bar-value">$3.80</div>
-                        </div>
-                        <div class="bar-item">
-                            <div class="bar" style="height: 60%"></div>
-                            <div class="bar-label">Kwi</div>
-                            <div class="bar-value">$6.00</div>
-                        </div>
-                        <div class="bar-item">
-                            <div class="bar" style="height: 48%"></div>
-                            <div class="bar-label">Maj</div>
-                            <div class="bar-value">$4.80</div>
-                        </div>
-                        <div class="bar-item">
-                            <div class="bar" style="height: 55%"></div>
-                            <div class="bar-label">Cze</div>
-                            <div class="bar-value">$5.50</div>
-                        </div>
-                    </div>
+                    {% endif %}
                 </div>
             </section>
 

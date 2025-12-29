@@ -112,7 +112,8 @@ class AIProcessor:
             result = json.loads(result_text)
 
             # Walidacja struktury
-            if not all(key in result for key in ["temat", "opis", "zadania", "kategoria"]):
+            required_keys = ["temat", "opis", "zadania", "kategoria"]
+            if not all(key in result for key in required_keys):
                 raise ValueError("Nieprawidłowa struktura odpowiedzi z GPT")
 
             # Upewnij się że zadania to lista
@@ -125,7 +126,19 @@ class AIProcessor:
                 logger.warning(f"Nieprawidłowa kategoria '{result['kategoria']}', ustawiam 'Inne'")
                 result["kategoria"] = "Inne"
 
-            logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', kategoria='{result['kategoria']}', {len(result['zadania'])} zadań")
+            # Walidacja confidence (opcjonalne)
+            if "confidence" not in result:
+                result["confidence"] = 0.5  # Domyślna wartość jeśli GPT nie zwrócił
+            else:
+                try:
+                    confidence = float(result["confidence"])
+                    # Upewnij się że jest w zakresie 0-1
+                    result["confidence"] = max(0.0, min(1.0, confidence))
+                except (ValueError, TypeError):
+                    logger.warning(f"Nieprawidłowa wartość confidence: {result['confidence']}, ustawiam 0.5")
+                    result["confidence"] = 0.5
+
+            logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', kategoria='{result['kategoria']}' (confidence: {result['confidence']:.2f}), {len(result['zadania'])} zadań")
             return result, usage
 
         except json.JSONDecodeError as e:
@@ -135,7 +148,8 @@ class AIProcessor:
                 "temat": transcription[:100] if len(transcription) > 100 else transcription,
                 "opis": transcription,
                 "zadania": [],
-                "kategoria": "Inne"
+                "kategoria": "Inne",
+                "confidence": 0.0  # Brak confidence w przypadku błędu
             }, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         except Exception as e:
             logger.error(f"Błąd podczas ekstrakcji struktury: {e}")
@@ -186,6 +200,7 @@ class AIProcessor:
                 "temat": str,
                 "opis": str,
                 "zadania": list[str],
+                "kategoria": str,
                 "embedding": list (wektor),
                 "cost_data": {
                     "audio_duration_seconds": int,
@@ -196,17 +211,22 @@ class AIProcessor:
                     "cost_gpt_input_usd": float,
                     "cost_gpt_output_usd": float,
                     "cost_embedding_usd": float,
-                    "cost_total_usd": float
+                    "cost_total_usd": float,
+                    "processing_time": float,
+                    "auto_category_confidence": float
                 }
             }
         """
+        import time
+        start_time = time.time()
+
         try:
             from cost_calculator import CostCalculator
 
             # Krok 1: Transkrypcja
             transcription, audio_duration = self.transcribe_audio(audio_bytes, filename)
 
-            # Krok 2: Ekstrakcja struktury
+            # Krok 2: Ekstrakcja struktury (ze smart klasyfikacją)
             structure, gpt_usage = self.extract_structure(transcription)
 
             # Krok 3: Generowanie embedding dla semantycznego wyszukiwania
@@ -228,6 +248,10 @@ class AIProcessor:
                 cost_embedding
             )
 
+            # Oblicz czas procesowania
+            processing_time = time.time() - start_time
+            logger.info(f"Przetwarzanie zakończone w {processing_time:.2f}s")
+
             # Połącz wyniki
             return {
                 "transkrypcja": transcription,
@@ -245,7 +269,9 @@ class AIProcessor:
                     "cost_gpt_input_usd": cost_gpt_in,
                     "cost_gpt_output_usd": cost_gpt_out,
                     "cost_embedding_usd": cost_embedding,
-                    "cost_total_usd": cost_total
+                    "cost_total_usd": cost_total,
+                    "processing_time": processing_time,
+                    "auto_category_confidence": structure.get("confidence", 0.5)
                 }
             }
 

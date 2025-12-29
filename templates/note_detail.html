@@ -118,6 +118,49 @@
                 </div>
             </section>
             {% endif %}
+
+            <!-- Informacje o generowaniu AI -->
+            {% if note.cost_total_usd %}
+            <section class="section ai-cost-section">
+                <h2>ℹ️ Informacje o generowaniu AI</h2>
+                <div class="ai-cost-grid">
+                    <div class="ai-cost-card">
+                        <div class="ai-cost-icon">💰</div>
+                        <div class="ai-cost-content">
+                            <div class="ai-cost-label">Koszt generowania</div>
+                            <div class="ai-cost-value">${{ "%.4f"|format(note.cost_total_usd|float) }}</div>
+                        </div>
+                    </div>
+                    {% if note.tokens_total %}
+                    <div class="ai-cost-card">
+                        <div class="ai-cost-icon">🔢</div>
+                        <div class="ai-cost-content">
+                            <div class="ai-cost-label">Użyte tokeny</div>
+                            <div class="ai-cost-value">{{ "{:,}".format(note.tokens_total) }}</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if note.processing_time %}
+                    <div class="ai-cost-card">
+                        <div class="ai-cost-icon">⏱️</div>
+                        <div class="ai-cost-content">
+                            <div class="ai-cost-label">Czas procesowania</div>
+                            <div class="ai-cost-value">{{ "%.1f"|format(note.processing_time|float) }}s</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if note.auto_category_confidence %}
+                    <div class="ai-cost-card">
+                        <div class="ai-cost-icon">🎯</div>
+                        <div class="ai-cost-content">
+                            <div class="ai-cost-label">Pewność klasyfikacji</div>
+                            <div class="ai-cost-value">{{ "%.0f"|format(note.auto_category_confidence|float * 100) }}%</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+            {% endif %}
         </main>
 
         <footer>
