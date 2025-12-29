@@ -424,7 +424,6 @@ def note_detail(note_id):
         return "Notatka nie znaleziona lub nie masz do niej dostępu", 404
 
     # Przygotuj dane - note.zadania to relacja ORM do obiektów Zadanie
-    zadania_list = [z.zadanie for z in note.zadania] if note.zadania else []
     photo_file_ids = json.loads(note.photo_file_ids) if note.photo_file_ids else []
 
     # Sprawdź czy notatka była edytowana
@@ -443,7 +442,7 @@ def note_detail(note_id):
         'opis': note.opis,
         'transkrypcja': note.transkrypcja,
         'data_utworzenia': note.data_utworzenia,
-        'zadania': zadania_list,
+        'zadania': note.zadania,  # Przekazujemy pełne obiekty Zadanie
         'photo_file_ids': photo_file_ids,
         'has_photos': len(photo_file_ids) > 0,
         'kategoria': note.kategoria,

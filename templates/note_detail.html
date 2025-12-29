@@ -67,7 +67,21 @@
                 <h2>📋 Zadania ({{ note.zadania|length }})</h2>
                 <ul class="task-list">
                     {% for zadanie in note.zadania %}
-                    <li class="task-item">☐ {{ zadanie }}</li>
+                    <li class="task-item" id="task-{{ zadanie.id }}" data-task-id="{{ zadanie.id }}">
+                        <input type="checkbox"
+                               class="task-checkbox"
+                               data-task-id="{{ zadanie.id }}"
+                               {% if zadanie.wykonane %}checked{% endif %}
+                               onchange="toggleTask({{ zadanie.id }}, this.checked)">
+                        <span class="task-text {% if zadanie.wykonane %}task-completed{% else %}task-pending{% endif %}">
+                            {{ zadanie.zadanie }}
+                        </span>
+                        {% if zadanie.data_wykonania %}
+                        <span class="completion-date" style="margin-left: 10px; color: #28a745; font-size: 0.9em;">
+                            ✅ {{ zadanie.data_wykonania.strftime('%Y-%m-%d %H:%M') }}
+                        </span>
+                        {% endif %}
+                    </li>
                     {% endfor %}
                 </ul>
             </section>
@@ -121,6 +135,69 @@
     <script>
         function confirmDelete() {
             return confirm('Czy na pewno chcesz usunąć tę notatkę? Operacja ta jest nieodwracalna.');
+        }
+
+        function toggleTask(taskId, isChecked) {
+            const taskItem = document.querySelector(`li[data-task-id="${taskId}"]`);
+            const checkbox = taskItem.querySelector('.task-checkbox');
+            const taskTextSpan = taskItem.querySelector('.task-text');
+            const completionDateSpan = taskItem.querySelector('.completion-date');
+
+            // Wyłącz checkbox podczas requestu
+            checkbox.disabled = true;
+
+            // Wyślij AJAX request
+            fetch(`/tasks/${taskId}/toggle`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Zaktualizuj UI
+                    if (data.wykonane) {
+                        // Zadanie wykonane
+                        taskTextSpan.classList.remove('task-pending');
+                        taskTextSpan.classList.add('task-completed');
+
+                        // Dodaj lub zaktualizuj datę wykonania
+                        if (completionDateSpan) {
+                            completionDateSpan.textContent = `✅ ${data.data_wykonania}`;
+                        } else {
+                            const newDateSpan = document.createElement('span');
+                            newDateSpan.className = 'completion-date';
+                            newDateSpan.style.marginLeft = '10px';
+                            newDateSpan.style.color = '#28a745';
+                            newDateSpan.style.fontSize = '0.9em';
+                            newDateSpan.textContent = `✅ ${data.data_wykonania}`;
+                            taskTextSpan.parentNode.appendChild(newDateSpan);
+                        }
+                    } else {
+                        // Zadanie niewykonane
+                        taskTextSpan.classList.remove('task-completed');
+                        taskTextSpan.classList.add('task-pending');
+
+                        // Usuń datę wykonania
+                        if (completionDateSpan) {
+                            completionDateSpan.remove();
+                        }
+                    }
+                    checkbox.disabled = false;
+                } else {
+                    // Błąd - przywróć poprzedni stan
+                    checkbox.checked = !isChecked;
+                    checkbox.disabled = false;
+                    alert('Błąd podczas aktualizacji zadania');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                checkbox.checked = !isChecked;
+                checkbox.disabled = false;
+                alert('Błąd połączenia z serwerem');
+            });
         }
     </script>
 </body>
