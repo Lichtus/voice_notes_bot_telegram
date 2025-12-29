@@ -436,6 +436,11 @@ def note_detail(note_id):
         if match:
             edit_date = match.group(1)
 
+    # Oblicz łączną liczbę tokenów
+    tokens_total = None
+    if note.tokens_input or note.tokens_output or note.tokens_embedding:
+        tokens_total = (note.tokens_input or 0) + (note.tokens_output or 0) + (note.tokens_embedding or 0)
+
     note_data = {
         'id': note.id,
         'temat': note.temat,
@@ -447,7 +452,12 @@ def note_detail(note_id):
         'has_photos': len(photo_file_ids) > 0,
         'kategoria': note.kategoria,
         'is_edited': is_edited,
-        'edit_date': edit_date
+        'edit_date': edit_date,
+        # Dane kosztów AI
+        'cost_total_usd': note.cost_total_usd,
+        'tokens_total': tokens_total,
+        'processing_time': note.processing_time,
+        'auto_category_confidence': note.auto_category_confidence
     }
 
     return render_template('note_detail.html', note=note_data, user=session)
@@ -890,8 +900,150 @@ def get_photo(note_id, photo_index):
 @app.route('/statistics')
 @login_required
 def statistics():
-    """Strona statystyk - MOCKUP (do wdrożenia z prawdziwymi danymi)"""
-    return render_template('statistics.html', user=session)
+    """Strona statystyk - profesjonalny dashboard z analizą AI"""
+    from database import Notatka, Zadanie
+    from sqlalchemy import func, extract
+    from datetime import datetime, timedelta
+    import calendar
+
+    telegram_user_id = session.get('telegram_user_id')
+
+    # === SEKCJA 1: Podsumowanie Kosztów ===
+    notatki = db.session.query(Notatka).filter(
+        Notatka.telegram_user_id == telegram_user_id,
+        Notatka.deleted_at.is_(None)
+    ).all()
+
+    total_cost = 0.0
+    total_tokens = 0
+    total_notes = len(notatki)
+    notes_with_costs = 0
+
+    for nota in notatki:
+        if nota.cost_total_usd:
+            try:
+                total_cost += float(nota.cost_total_usd)
+                notes_with_costs += 1
+            except (ValueError, TypeError):
+                pass
+
+        if nota.tokens_input or nota.tokens_output or nota.tokens_embedding:
+            total_tokens += (nota.tokens_input or 0) + (nota.tokens_output or 0) + (nota.tokens_embedding or 0)
+
+    avg_cost = total_cost / notes_with_costs if notes_with_costs > 0 else 0
+
+    # === SEKCJA 2: Podział Kategorii ===
+    category_stats = db.session.query(
+        Notatka.kategoria,
+        func.count(Notatka.id).label('count')
+    ).filter(
+        Notatka.telegram_user_id == telegram_user_id,
+        Notatka.deleted_at.is_(None)
+    ).group_by(Notatka.kategoria).all()
+
+    # Oblicz koszty per kategoria
+    category_data = {}
+    for kategoria, count in category_stats:
+        cost = sum(
+            float(n.cost_total_usd) for n in notatki
+            if n.kategoria == kategoria and n.cost_total_usd
+        )
+        percentage = (count / total_notes * 100) if total_notes > 0 else 0
+        category_data[kategoria] = {
+            'count': count,
+            'percentage': percentage,
+            'cost': cost
+        }
+
+    # === SEKCJA 3: Analiza Zadań ===
+    all_tasks = db.session.query(Zadanie).join(Notatka).filter(
+        Notatka.telegram_user_id == telegram_user_id,
+        Notatka.deleted_at.is_(None)
+    ).all()
+
+    total_tasks = len(all_tasks)
+    completed_tasks = sum(1 for t in all_tasks if t.wykonane)
+    pending_tasks = total_tasks - completed_tasks
+    completion_rate = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0
+
+    # Oblicz średni czas reakcji (tylko dla wykonanych zadań)
+    reaction_times = []
+    fastest_time = None
+    slowest_time = None
+
+    for task in all_tasks:
+        if task.wykonane and task.data_wykonania:
+            delta = (task.data_wykonania - task.notatka.data_utworzenia).total_seconds()
+            days = delta / 86400  # sekundy na dni
+            reaction_times.append(days)
+
+            if fastest_time is None or days < fastest_time:
+                fastest_time = days
+            if slowest_time is None or days > slowest_time:
+                slowest_time = days
+
+    avg_reaction_time = sum(reaction_times) / len(reaction_times) if reaction_times else 0
+
+    # === SEKCJA 4: Top 5 Najdroższych Notatek ===
+    expensive_notes = sorted(
+        [n for n in notatki if n.cost_total_usd],
+        key=lambda x: float(x.cost_total_usd),
+        reverse=True
+    )[:5]
+
+    top_notes = []
+    for nota in expensive_notes:
+        tokens_total = (nota.tokens_input or 0) + (nota.tokens_output or 0) + (nota.tokens_embedding or 0)
+        top_notes.append({
+            'id': nota.id,
+            'temat': nota.temat,
+            'kategoria': nota.kategoria,
+            'data': nota.data_utworzenia.strftime('%Y-%m-%d'),
+            'tokens': tokens_total,
+            'cost': float(nota.cost_total_usd)
+        })
+
+    # === SEKCJA 5: Koszty w czasie (ostatnie 6 miesięcy) ===
+    now = datetime.now()
+    monthly_costs = {}
+
+    for i in range(6):
+        # Oblicz miesiąc i rok
+        target_date = now - timedelta(days=i*30)
+        month_key = target_date.strftime('%Y-%m')
+        month_name = calendar.month_abbr[target_date.month]
+
+        # Filtruj notatki z tego miesiąca
+        month_notes = [
+            n for n in notatki
+            if n.data_utworzenia.strftime('%Y-%m') == month_key and n.cost_total_usd
+        ]
+
+        month_cost = sum(float(n.cost_total_usd) for n in month_notes)
+        monthly_costs[month_name] = month_cost
+
+    # Odwróć kolejność (najstarszy pierwszy)
+    monthly_costs = dict(reversed(list(monthly_costs.items())))
+
+    # Przygotuj dane do szablonu
+    stats = {
+        'total_cost': total_cost,
+        'total_notes': total_notes,
+        'avg_cost': avg_cost,
+        'total_tokens': total_tokens,
+        'category_data': category_data,
+        'total_tasks': total_tasks,
+        'completed_tasks': completed_tasks,
+        'pending_tasks': pending_tasks,
+        'completion_rate': completion_rate,
+        'avg_reaction_time': avg_reaction_time,
+        'fastest_time': fastest_time,
+        'slowest_time': slowest_time,
+        'top_notes': top_notes,
+        'monthly_costs': monthly_costs
+    }
+
+    return render_template('statistics.html', user=session, stats=stats)
 
 
 if __name__ == '__main__':
