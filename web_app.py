@@ -12,7 +12,7 @@ import hashlib
 import hmac
 from functools import wraps
 
-from flask import Flask, render_template, request, Response, session, redirect, url_for
+from flask import Flask, render_template, request, Response, session, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
 # Import modułów bota
@@ -584,17 +584,20 @@ def toggle_task(task_id):
         ).first()
 
     if not task:
-        return "Zadanie nie znalezione lub nie masz do niego dostępu", 404
+        return jsonify({'error': 'Zadanie nie znalezione'}), 404
 
     # Przełącz status
     task.wykonane = not task.wykonane
     task.data_wykonania = datetime.now() if task.wykonane else None
     db.session.commit()
 
-    # Przekieruj z powrotem do listy zadań
-    return redirect(url_for('tasks_list',
-                           status=request.form.get('status_filter', 'all'),
-                           sort=request.form.get('sort_by', 'note_date_desc')))
+    # Zwróć JSON z danymi zadania (dla AJAX)
+    return jsonify({
+        'success': True,
+        'task_id': task.id,
+        'wykonane': task.wykonane,
+        'data_wykonania': task.data_wykonania.strftime('%Y-%m-%d %H:%M') if task.data_wykonania else None
+    })
 
 
 def generate_email_html(note, base_url=None):
