@@ -624,17 +624,51 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 import os
                 os.remove(pdf_path)
 
+                # Formatuj datę
+                data_str = notatka.data_utworzenia.strftime("%d.%m.%Y %H:%M:%S")
+
+                # Komunikat potwierdzający z pełnymi szczegółami
+                message = (
+                    f"🎉 *Notatka zapisana i PDF wygenerowany!*\n\n"
+                    f"🆔 *Numer notatki:* #{notatka.id}\n"
+                    f"📅 *Data utworzenia:* {data_str}"
+                )
+
+                # Przycisk do pobrania transkrypcji
+                keyboard = [[
+                    InlineKeyboardButton("📄 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")
+                ]]
+
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"🎉 *Notatka #{notatka.id} zapisana i PDF wygenerowany!*",
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
 
             except Exception as e:
                 logger.error(f"Błąd generowania PDF: {e}")
+
+                # Formatuj datę
+                data_str = notatka.data_utworzenia.strftime("%d.%m.%Y %H:%M:%S")
+
+                # Komunikat z błędem PDF ale notatkę zapisano
+                message = (
+                    f"✅ *Notatka zapisana!*\n"
+                    f"❌ Błąd generowania PDF: {str(e)}\n\n"
+                    f"🆔 *Numer notatki:* #{notatka.id}\n"
+                    f"📅 *Data utworzenia:* {data_str}"
+                )
+
+                # Przycisk do pobrania transkrypcji
+                keyboard = [[
+                    InlineKeyboardButton("📄 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")
+                ]]
+
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"✅ Notatka #{notatka.id} zapisana!\n❌ Błąd generowania PDF: {str(e)}",
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
 
@@ -659,9 +693,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             del pending_notes[user_id]
 
+            # Formatuj datę
+            data_str = notatka.data_utworzenia.strftime("%d.%m.%Y %H:%M:%S")
+
             photo_count = len(note["photos"])
             photos_info = f" z {photo_count} zdjęciami" if photo_count > 0 else ""
-            await query.edit_message_text(f"🎉 *Notatka #{notatka.id} zapisana{photos_info}!*", parse_mode='Markdown')
+
+            # Komunikat potwierdzający z pełnymi szczegółami
+            message = (
+                f"🎉 *Notatka zapisana{photos_info}!*\n\n"
+                f"🆔 *Numer notatki:* #{notatka.id}\n"
+                f"📅 *Data utworzenia:* {data_str}"
+            )
+
+            # Przycisk do pobrania transkrypcji
+            keyboard = [[
+                InlineKeyboardButton("📄 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")
+            ]]
+
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
 
         return ConversationHandler.END
 
@@ -681,8 +735,75 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cost_data=note.get("cost_data")  # Dane o kosztach API
             )
             del pending_notes[user_id]
-            await query.edit_message_text(f"🎉 *Notatka #{notatka.id} zapisana!*", parse_mode='Markdown')
+
+            # Formatuj datę
+            data_str = notatka.data_utworzenia.strftime("%d.%m.%Y %H:%M:%S")
+
+            # Komunikat potwierdzający z pełnymi szczegółami
+            message = (
+                f"🎉 *Notatka zapisana!*\n\n"
+                f"🆔 *Numer notatki:* #{notatka.id}\n"
+                f"📅 *Data utworzenia:* {data_str}"
+            )
+
+            # Przycisk do pobrania transkrypcji
+            keyboard = [[
+                InlineKeyboardButton("📄 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")
+            ]]
+
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
         return ConversationHandler.END
+
+    elif action.startswith("download_transcript_"):
+        # Pobierz i wyślij transkrypcję jako plik TXT
+        try:
+            notatka_id = int(action.split("_")[-1])
+            notatka = db.get_notatka_by_id(notatka_id, user_id)
+
+            if not notatka:
+                await query.answer("❌ Nie znaleziono notatki", show_alert=True)
+                return
+
+            await query.answer("📄 Generuję plik TXT...")
+
+            # Utwórz plik TXT z transkrypcją
+            import io
+            txt_content = f"""TRANSKRYPCJA NOTATKI #{notatka.id}
+=====================================
+
+TEMAT:
+{notatka.temat}
+
+DATA UTWORZENIA:
+{notatka.data_utworzenia.strftime('%d.%m.%Y %H:%M:%S')}
+
+TRANSKRYPCJA:
+{notatka.transkrypcja}
+
+=====================================
+Wygenerowano przez Voice Notes Bot
+"""
+
+            # Utwórz plik w pamięci
+            txt_file = io.BytesIO(txt_content.encode('utf-8'))
+            txt_file.name = f"transkrypcja_{notatka.id}.txt"
+
+            # Wyślij plik
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=txt_file,
+                filename=f"transkrypcja_{notatka.id}.txt",
+                caption=f"📄 *Transkrypcja notatki #{notatka.id}*\n📌 {notatka.temat}",
+                parse_mode='Markdown'
+            )
+
+        except Exception as e:
+            logger.error(f"Błąd pobierania transkrypcji: {e}")
+            await query.answer("❌ Błąd generowania pliku TXT", show_alert=True)
 
     elif action == "edit_temat":
         await query.edit_message_text(
@@ -1192,11 +1313,14 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
 
+    # Przycisk do pobrania transkrypcji jako TXT
+    keyboard.append([InlineKeyboardButton("📥 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")])
+
     # Przycisk do uzupełnienia notatki nagraniem
     keyboard.append([InlineKeyboardButton("🎤 Uzupełnij nagraniem", callback_data=f"edit_note_{notatka.id}")])
 
     # Przycisk do generowania PDF
-    keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
+    keyboard.append([InlineKeyboardButton("📄 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
 
     # Wyślij wiadomość
     if keyboard:
@@ -1251,11 +1375,14 @@ async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE
     if notatka.transkrypcja and len(notatka.transkrypcja) > len(notatka.opis):
         keyboard.append([InlineKeyboardButton("📄 Pełna transkrypcja", callback_data=f"transcript_{notatka.id}")])
 
+    # Przycisk do pobrania transkrypcji jako TXT
+    keyboard.append([InlineKeyboardButton("📥 Pobierz transkrypcję (TXT)", callback_data=f"download_transcript_{notatka.id}")])
+
     # Przycisk do uzupełnienia notatki nagraniem
     keyboard.append([InlineKeyboardButton("🎤 Uzupełnij nagraniem", callback_data=f"edit_note_{notatka.id}")])
 
     # Przycisk do generowania PDF
-    keyboard.append([InlineKeyboardButton("📥 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
+    keyboard.append([InlineKeyboardButton("📄 Generuj PDF", callback_data=f"download_pdf_{notatka.id}")])
 
     # Wyślij wiadomość
     if keyboard:
@@ -1614,6 +1741,7 @@ def main():
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_pdf_"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
 
     # Uruchomienie bota
