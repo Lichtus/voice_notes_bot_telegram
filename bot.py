@@ -459,6 +459,12 @@ async def show_note_preview(update: Update, user_id: int):
             InlineKeyboardButton("📸 Dodaj zdjęcia", callback_data="add_photos"),
             InlineKeyboardButton("⏭️ Pomiń", callback_data="skip_photos")
         ],
+    ]
+    if note.get("segmenty"):
+        keyboard.append(
+            [InlineKeyboardButton("👥 Popraw liczbę osób", callback_data="mowcy_popraw")]
+        )
+    keyboard += [
         [
             InlineKeyboardButton("✏️ Edytuj temat", callback_data="edit_temat"),
             InlineKeyboardButton("❌ Anuluj", callback_data="cancel")
@@ -1219,6 +1225,64 @@ Wygenerowano przez Voice Notes Bot
             parse_mode='Markdown'
         )
         return EDITING_TEMAT
+
+    elif action == "mowcy_popraw":
+        wykryto = len({(s.get("czesc"), s["mowca"])
+                       for s in (pending_notes.get(user_id, {}).get("segmenty") or [])})
+        keyboard = [[InlineKeyboardButton(f"{n} osoby" if n < 5 else f"{n} osób",
+                                          callback_data=f"mowcy_{n}") for n in (2, 3)],
+                    [InlineKeyboardButton(f"{n} osób", callback_data=f"mowcy_{n}")
+                     for n in (4, 5)],
+                    [InlineKeyboardButton("↩️ Zostaw jak jest", callback_data="mowcy_anuluj")]]
+        await query.edit_message_text(
+            f"👥 *Ile osób mówi w nagraniu?*\n\n"
+            f"System rozpoznał: {wykryto}. Przy krótkich nagraniach potrafi "
+            f"skleić dwie osoby w jedną — podaj dokładną liczbę, a przetworzę "
+            f"nagranie jeszcze raz.",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
+        )
+        return WAITING_CONFIRMATION
+
+    elif action == "mowcy_anuluj":
+        await show_note_preview_from_callback(update, context, user_id)
+        return WAITING_CONFIRMATION
+
+    elif action.startswith("mowcy_"):
+        ile = int(action.split("_")[1])
+        note = pending_notes.get(user_id)
+        if not note or not note.get("audio_parts"):
+            await query.edit_message_text("❌ Brak nagrania do ponownego przetworzenia")
+            return ConversationHandler.END
+
+        await query.edit_message_text(f"🔄 Przetwarzam ponownie dla {ile} osób...")
+
+        from cost_calculator import CostCalculator
+        transkrypcje, segmenty, czas_total, dostawca = [], [], 0, None
+        for i, part in enumerate(note["audio_parts"], 1):
+            # Świadomie pomijamy zapisaną transkrypcję — potrzebujemy nowej,
+            # z podpowiedzią o liczbie osób.
+            tr = ai.transcribe_audio(part["bytes"], filename=part["filename"],
+                                     liczba_mowcow=ile)
+            dostawca = tr.get("dostawca")
+            transkrypcje.append(f"[Część {i}]\n{tr['tekst']}")
+            czas_total += tr["czas_s"]
+            for s in tr["segmenty"]:
+                segmenty.append({**s, "czesc": i})
+
+        note["transkrypcja"] = "\n\n".join(transkrypcje)
+        note["segmenty"] = segmenty
+
+        # Ponowna transkrypcja to realny wydatek — doliczamy go do notatki.
+        koszt = CostCalculator.calculate_transcription_cost(czas_total, dostawca)
+        koszty = note.setdefault("cost_data", {})
+        koszty["cost_whisper_usd"] = (koszty.get("cost_whisper_usd") or 0) + koszt
+        koszty["cost_total_usd"] = (koszty.get("cost_total_usd") or 0) + koszt
+
+        wykryto = sorted({s["mowca"] for s in segmenty})
+        logger.info(f"Ponowna diaryzacja dla {ile} osób: wykryto {wykryto}")
+
+        await show_note_preview_from_callback(update, context, user_id)
+        return WAITING_CONFIRMATION
 
     elif action == "cancel":
         await query.edit_message_text(

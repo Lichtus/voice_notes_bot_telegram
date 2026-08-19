@@ -26,7 +26,7 @@ class AIProcessor:
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def transcribe_audio(self, audio_bytes, filename="voice.ogg"):
+    def transcribe_audio(self, audio_bytes, filename="voice.ogg", liczba_mowcow=None):
         """
         Transkrybuje audio z rozpoznaniem mówców.
 
@@ -34,6 +34,10 @@ class AIProcessor:
             audio_bytes: Bajty pliku audio
             filename: Nazwa pliku — MUSI mieć rozszerzenie zgodne z rzeczywistą
                 zawartością, API odrzuca niepasujące (np. plik M4A nazwany .ogg)
+            liczba_mowcow: Dokładna liczba osób w nagraniu. Przy krótkich
+                nagraniach grupowanie samo jej nie odgadnie i potrafi skleić
+                dwie osoby w jedną. Obsługiwane tylko przez AssemblyAI —
+                API przyjmuje dokładną liczbę, nie zakres.
 
         Returns:
             dict: {
@@ -51,14 +55,16 @@ class AIProcessor:
 
         if TRANSCRIPTION_PROVIDER == "assemblyai":
             try:
-                return self._transkrypcja_assemblyai(audio_bytes)
+                return self._transkrypcja_assemblyai(audio_bytes, liczba_mowcow)
             except Exception as e:
                 # Awaria zewnętrznego dostawcy nie może kosztować użytkownika notatki
                 logger.warning(f"AssemblyAI zawiódł ({e}); przechodzę na OpenAI")
 
+        if liczba_mowcow:
+            logger.info("OpenAI nie przyjmuje podpowiedzi o liczbie mówców — pomijam")
         return self._transkrypcja_openai(audio_bytes, filename)
 
-    def _transkrypcja_assemblyai(self, audio_bytes):
+    def _transkrypcja_assemblyai(self, audio_bytes, liczba_mowcow=None):
         """
         Diaryzacja z globalnym grupowaniem mówców — etykiety są spójne przez
         całe nagranie i nie wymagają żadnych próbek głosu.
@@ -72,10 +78,14 @@ class AIProcessor:
                                data=audio_bytes, timeout=180)
         wgrane.raise_for_status()
 
-        zlecenie = requests.post(f"{ASSEMBLYAI_API}/transcript", headers=naglowki, timeout=30,
-                                 json={"audio_url": wgrane.json()["upload_url"],
-                                       "speaker_labels": True,
-                                       "language_code": ASSEMBLYAI_LANGUAGE})
+        zadanie = {"audio_url": wgrane.json()["upload_url"],
+                   "speaker_labels": True,
+                   "language_code": ASSEMBLYAI_LANGUAGE}
+        if liczba_mowcow:
+            zadanie["speakers_expected"] = liczba_mowcow
+
+        zlecenie = requests.post(f"{ASSEMBLYAI_API}/transcript", headers=naglowki,
+                                 timeout=30, json=zadanie)
         zlecenie.raise_for_status()
         tid = zlecenie.json()["id"]
 
@@ -105,8 +115,9 @@ class AIProcessor:
         mowcy = sorted({s["mowca"] for s in segmenty})
         czas = int(round(stan.get("audio_duration") or 0)) or 1
 
+        podpowiedz = f", podpowiedź: {liczba_mowcow} os." if liczba_mowcow else ""
         logger.info(f"AssemblyAI: {czas}s, {len(segmenty)} wypowiedzi, "
-                    f"mówcy: {mowcy or 'brak'}, pewność: {stan.get('confidence')}")
+                    f"mówcy: {mowcy or 'brak'}, pewność: {stan.get('confidence')}{podpowiedz}")
 
         return {
             "tekst": stan.get("text") or "",
