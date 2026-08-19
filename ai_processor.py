@@ -26,7 +26,8 @@ class AIProcessor:
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def transcribe_audio(self, audio_bytes, filename="voice.ogg", liczba_mowcow=None):
+    def transcribe_audio(self, audio_bytes, filename="voice.ogg", liczba_mowcow=None,
+                         dostawca=None):
         """
         Transkrybuje audio z rozpoznaniem mówców.
 
@@ -34,6 +35,8 @@ class AIProcessor:
             audio_bytes: Bajty pliku audio
             filename: Nazwa pliku — MUSI mieć rozszerzenie zgodne z rzeczywistą
                 zawartością, API odrzuca niepasujące (np. plik M4A nazwany .ogg)
+            dostawca: "assemblyai", "openai" albo "whisper". Gdy None, brany
+                jest TRANSCRIPTION_PROVIDER z konfiguracji.
             liczba_mowcow: Dokładna liczba osób w nagraniu. Przy krótkich
                 nagraniach grupowanie samo jej nie odgadnie i potrafi skleić
                 dwie osoby w jedną. Obsługiwane tylko przez AssemblyAI —
@@ -49,11 +52,13 @@ class AIProcessor:
                 "tokeny_output": int,
             }
         """
-        logger.info(
-            f"Transkrypcja: {len(audio_bytes)} bajtów, dostawca {TRANSCRIPTION_PROVIDER}"
-        )
+        dostawca = dostawca or TRANSCRIPTION_PROVIDER
+        logger.info(f"Transkrypcja: {len(audio_bytes)} bajtów, dostawca {dostawca}")
 
-        if TRANSCRIPTION_PROVIDER == "assemblyai":
+        if dostawca == "whisper":
+            return self._transkrypcja_awaryjna(audio_bytes, filename)
+
+        if dostawca == "assemblyai":
             try:
                 return self._transkrypcja_assemblyai(audio_bytes, liczba_mowcow)
             except Exception as e:

@@ -69,6 +69,23 @@ class Notatka(Base):
         return f"<Notatka(id={self.id}, temat='{self.temat}', data={self.data_utworzenia})>"
 
 
+class Ustawienie(Base):
+    """
+    Ustawienia per użytkownik, np. wybrany dostawca transkrypcji.
+
+    Nowa tabela nie wymaga migracji — create_all() zakłada ją przy starcie.
+    """
+    __tablename__ = 'ustawienia'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_user_id = Column(Integer, nullable=False)
+    klucz = Column(String(50), nullable=False)
+    wartosc = Column(Text)
+
+    def __repr__(self):
+        return f"<Ustawienie({self.telegram_user_id}, {self.klucz}={self.wartosc})>"
+
+
 class Zadanie(Base):
     """Model zadania związanego z notatką"""
     __tablename__ = 'zadania'
@@ -396,6 +413,25 @@ class Database:
 
         self.session.commit()
         return notatka
+
+    def get_ustawienie(self, telegram_user_id, klucz, domyslne=None):
+        """Zwraca wartość ustawienia albo wartość domyślną."""
+        u = self.session.query(Ustawienie).filter_by(
+            telegram_user_id=telegram_user_id, klucz=klucz).first()
+        return u.wartosc if u and u.wartosc else domyslne
+
+    def set_ustawienie(self, telegram_user_id, klucz, wartosc):
+        """Zapisuje ustawienie, nadpisując poprzednią wartość."""
+        u = self.session.query(Ustawienie).filter_by(
+            telegram_user_id=telegram_user_id, klucz=klucz).first()
+        if u:
+            u.wartosc = wartosc
+        else:
+            self.session.add(Ustawienie(telegram_user_id=telegram_user_id,
+                                        klucz=klucz, wartosc=wartosc))
+        self.session.commit()
+        logger.info(f"Ustawienie {klucz}={wartosc} dla użytkownika {telegram_user_id}")
+        return wartosc
 
     def get_notatka_by_id(self, notatka_id, telegram_user_id, include_deleted=False):
         """

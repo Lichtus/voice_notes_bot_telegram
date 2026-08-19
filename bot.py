@@ -17,7 +17,8 @@ from telegram.ext import (
 )
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, TRANSCRIPTION_MODEL, validate_config
+from config import (TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, TRANSCRIPTION_MODEL,
+                    TRANSCRIPTION_PROVIDER, validate_config)
 from database import Database
 from ai_processor import AIProcessor
 
@@ -132,7 +133,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/zadania` - zadania do zrobienia\n"
         "• `/wykonane [id]` - oznacz zadanie\n"
         "• `/stats` - statystyki\n"
-        "• `/anuluj` - odrzuć notatkę w trakcie tworzenia\n\n"
+        "• `/anuluj` - odrzuć notatkę w trakcie tworzenia\n"
+        "• `/model` - wybierz model transkrypcji\n\n"
         "⚠️ *Limit:* max 20 minut nagrania",
         parse_mode='Markdown'
     )
@@ -168,7 +170,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # "szukaj", ale jest tym samym wynikiem, którego potrzebuje finalizacja
         # — zachowujemy ją niżej, żeby nie płacić za to samo audio dwa razy.
         await update.message.reply_text("🔄 Transkrybuję audio...")
-        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename,
+                                  dostawca=dostawca_uzytkownika(user_id))
         transcription = _tr["tekst"]
 
         # Loguj transkrypcję dla debugowania
@@ -380,6 +383,42 @@ def tekst_transkrypcji(notatka):
     if len({(s.get("czesc"), s["mowca"]) for s in segmenty}) < 2:
         return notatka.transkrypcja
     return dialog_z_segmentow(segmenty) or notatka.transkrypcja
+
+
+DOSTAWCY = {
+    "assemblyai": ("AssemblyAI", "rozpoznaje mówców przez całe nagranie, ~2x tańszy"),
+    "openai":     ("OpenAI diarize", "dokładniejszy polski, mówcy bywają niestabilni"),
+    # Whisper nie zwraca długości nagrania, więc kod ją szacuje z rozmiaru
+    # pliku — myli się nawet trzykrotnie, co psuje koszty i próg 5 minut.
+    "whisper":    ("Whisper", "sama treść, bez mówców i bez dokładnego czasu"),
+}
+
+
+def dostawca_uzytkownika(user_id):
+    """Wybrany dostawca transkrypcji; bez ustawienia — wartość z konfiguracji."""
+    return db.get_ustawienie(user_id, "dostawca_transkrypcji", TRANSCRIPTION_PROVIDER)
+
+
+def klawiatura_modeli(biezacy):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(("✅ " if k == biezacy else "") + nazwa,
+                              callback_data=f"model_{k}")]
+        for k, (nazwa, _) in DOSTAWCY.items()
+    ])
+
+
+@check_user_allowed
+async def model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Podgląd i zmiana modelu transkrypcji."""
+    biezacy = dostawca_uzytkownika(update.effective_user.id)
+    opis = "\n".join(
+        f"{'▸' if k == biezacy else ' '} *{nazwa}* — {czym}"
+        for k, (nazwa, czym) in DOSTAWCY.items()
+    )
+    await update.message.reply_text(
+        f"🎛️ *Model transkrypcji*\n\n{opis}\n\nWybierz, którego używać:",
+        reply_markup=klawiatura_modeli(biezacy), parse_mode='Markdown'
+    )
 
 
 def odrzuc_biezaca_notatke(user_id):
@@ -821,7 +860,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.info(f"Część {i}/{part_count} — używam transkrypcji z wykrywania słowa kluczowego")
                 else:
                     logger.info(f"Transkrybuję część {i}/{part_count}")
-                    tr = ai.transcribe_audio(part["bytes"], filename=part["filename"])
+                    tr = ai.transcribe_audio(part["bytes"], filename=part["filename"],
+                                             dostawca=dostawca_uzytkownika(user_id))
                 dostawca_transkrypcji = tr.get("dostawca")
                 transcriptions.append(f"[Część {i}]\n{tr['tekst']}")
                 total_duration += tr["czas_s"]
@@ -1226,6 +1266,20 @@ Wygenerowano przez Voice Notes Bot
         )
         return EDITING_TEMAT
 
+    elif action.startswith("model_"):
+        wybrany = action.split("_", 1)[1]
+        if wybrany not in DOSTAWCY:
+            await query.answer("Nieznany model")
+            return
+        db.set_ustawienie(user_id, "dostawca_transkrypcji", wybrany)
+        nazwa, czym = DOSTAWCY[wybrany]
+        await query.edit_message_text(
+            f"🎛️ *Model transkrypcji: {nazwa}*\n\n{czym}\n\n"
+            "Obowiązuje od następnego nagrania.",
+            reply_markup=klawiatura_modeli(wybrany), parse_mode='Markdown'
+        )
+        return
+
     elif action == "mowcy_popraw":
         wykryto = len({(s.get("czesc"), s["mowca"])
                        for s in (pending_notes.get(user_id, {}).get("segmenty") or [])})
@@ -1262,7 +1316,8 @@ Wygenerowano przez Voice Notes Bot
             # Świadomie pomijamy zapisaną transkrypcję — potrzebujemy nowej,
             # z podpowiedzią o liczbie osób.
             tr = ai.transcribe_audio(part["bytes"], filename=part["filename"],
-                                     liczba_mowcow=ile)
+                                     liczba_mowcow=ile,
+                                     dostawca=dostawca_uzytkownika(user_id))
             dostawca = tr.get("dostawca")
             transkrypcje.append(f"[Część {i}]\n{tr['tekst']}")
             czas_total += tr["czas_s"]
@@ -1519,7 +1574,8 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Transkrybuj nowe nagranie
         await update.message.reply_text("🔄 Transkrybuję nowe nagranie...")
-        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename,
+                                  dostawca=dostawca_uzytkownika(user_id))
         new_transcript, audio_duration = _tr["tekst"], _tr["czas_s"]
 
         # Dodaj timestamp edycji
@@ -2216,12 +2272,14 @@ def main():
     application.add_handler(CommandHandler("wykonane", wykonane))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("anuluj", anuluj))
+    application.add_handler(CommandHandler("model", model))
 
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_pdf_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^download_transcript_"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^play_"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^model_"))
 
     # Uruchomienie bota
     logger.info("🚀 Bot uruchomiony!")

@@ -17,7 +17,7 @@ import bot as bot_mod
 from bot import (podsumowanie_mowcow, dialog_z_segmentow,
                  tekst_transkrypcji, odrzuc_biezaca_notatke)
 from database import Database
-from config import TRANSCRIPTION_MODEL
+from config import TRANSCRIPTION_MODEL, TRANSCRIPTION_PROVIDER
 
 ZIELONY, CZERWONY, KONIEC = "\033[32m", "\033[31m", "\033[0m"
 wyniki = []
@@ -140,6 +140,30 @@ def main():
             UID not in bot_mod.pending_notes)
     sprawdz("powtórne odrzucenie jest bezpieczne",
             "nie było czego odrzucać" in odrzuc_biezaca_notatke(UID))
+
+    # ---------- 5. Przełączanie modelu transkrypcji ----------
+    print("\n5. Wybór modelu transkrypcji")
+    from bot import DOSTAWCY, dostawca_uzytkownika
+    UID2 = 999_000_002
+
+    sprawdz("bez ustawienia bierze wartość z konfiguracji",
+            dostawca_uzytkownika(UID2) == TRANSCRIPTION_PROVIDER,
+            f"domyślnie: {TRANSCRIPTION_PROVIDER}")
+
+    import bot as _b
+    _b.db.set_ustawienie(UID2, "dostawca_transkrypcji", "whisper")
+    sprawdz("wybór jest zapamiętany", dostawca_uzytkownika(UID2) == "whisper")
+
+    # nowa instancja Database = symulacja restartu bota
+    from database import Database as _D
+    sprawdz("wybór przeżywa restart",
+            _D(db_path).get_ustawienie(UID2, "dostawca_transkrypcji") == "whisper")
+
+    _b.db.set_ustawienie(UID2, "dostawca_transkrypcji", "assemblyai")
+    sprawdz("zmiana nadpisuje poprzednią wartość",
+            dostawca_uzytkownika(UID2) == "assemblyai")
+    sprawdz("wszystkie warianty mają opis", len(DOSTAWCY) == 3,
+            ", ".join(DOSTAWCY))
 
     zdane = sum(wyniki)
     print(f"\n{'─'*54}\nZdane: {zdane}/{len(wyniki)}")
