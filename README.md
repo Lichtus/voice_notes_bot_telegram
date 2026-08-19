@@ -1,240 +1,259 @@
 # 🎙️ Voice Notes Telegram Bot
 
-Bot Telegram do automatycznego przetwarzania notatek głosowych z wykorzystaniem AI (OpenAI Whisper + GPT-4o-mini).
+Bot Telegram, który zamienia notatki głosowe w uporządkowaną treść. Nagranie trafia do
+Whispera po transkrypcję, następnie GPT-4o-mini wyciąga z niego temat, opis, zadania,
+kluczowe myśli i terminy. Całość ląduje w bazie, którą można przeglądać z poziomu
+Telegrama albo w dołączonej aplikacji webowej.
 
-## ✨ Funkcje
+Bot jest napisany pod język polski — prompt wymusza 1. osobę liczby pojedynczej,
+usuwa wypełniacze („eeeyy", „yyy") i porządkuje mowę potoczną w zwięzły tekst.
 
-- 🎤 **Nagrywanie głosowe** - wyślij voice message, bot automatycznie przetworzy
-- 🎵 **Pliki audio** - wgraj pliki audio (MP3, WAV, M4A, OGG, WEBM) - wszystkie obsługiwane!
-- 🤖 **AI Processing** - automatyczna transkrypcja (Whisper) i ekstrakcja struktury (GPT-4o-mini)
-- 📋 **Struktura notatek**:
-  - Temat (automatycznie wykrywany)
-  - Opis (pełna treść)
-  - Zadania do zrobienia (automatycznie wyodrębniane)
-- 💾 **Baza SQLite** - wszystkie notatki zapisywane lokalnie
-- 🔍 **Wyszukiwanie semantyczne** - głosowe i tekstowe wyszukiwanie z % dopasowania
-- ✅ **Zarządzanie zadaniami** - lista zadań i oznaczanie jako wykonane
-- 🔒 **Bezpieczeństwo** - whitelist użytkowników (tylko Ty masz dostęp)
+## ✨ Co potrafi
+
+- **Notatki głosowe i pliki audio** — voice message albo wgrany plik (MP3, WAV, M4A, OGG).
+  Jedną notatkę można złożyć z kilku nagrań; transkrypcje są sklejane znacznikami `[Część N]`.
+- **Automatyczna struktura** — temat, opis, lista zadań, kluczowe myśli, terminy oraz
+  kategoria (`Praca` / `Dom` / `Inne`) z oceną pewności klasyfikacji.
+- **Dogłębna analiza długich nagrań** — powyżej 5 minut bot proponuje szczegółowy raport:
+  identyfikacja rozmówców, podział na sekcje tematyczne z cytatami, lista ustaleń
+  i chronologia dat.
+- **Zdjęcia i PDF** — do notatki można dołączyć zdjęcia i wygenerować z całości PDF-a.
+- **Wyszukiwanie głosowe** — semantyczne, po embeddingach, z procentem dopasowania.
+- **Zadania** — lista niewykonanych zadań i oznaczanie ich jako zrobione.
+- **Śledzenie kosztów** — koszt Whispera, GPT i embeddingów zapisywany przy każdej notatce.
+- **Aplikacja webowa** — przeglądanie notatek, zadań i statystyk w przeglądarce.
+- **Whitelist** — z bota korzystają wyłącznie ID wymienione w `ALLOWED_USER_IDS`.
 
 ## 📋 Wymagania
 
-- Python 3.9+
-- Telegram Bot Token (z @BotFather)
-- OpenAI API Key
-- Twój Telegram User ID
+- Docker i Docker Compose — albo Python **3.10+**, jeśli wolisz uruchamiać bez kontenerów
+- Token bota z [@BotFather](https://t.me/BotFather)
+- Klucz API OpenAI
+- Własne Telegram User ID (poda je [@userinfobot](https://t.me/userinfobot))
 
-## 🚀 Instalacja (Lokalna)
+## 🚀 Uruchomienie
 
-### 1. Sklonuj repozytorium
-
-```bash
-git clone <repo-url>
-cd 25_wrozenia_aplikacji_notatki
-```
-
-### 2. Zainstaluj zależności
+### Docker (zalecane)
 
 ```bash
-pip install -r requirements-bot.txt
+git clone https://github.com/Lichtus/voice_notes_bot_telegram.git
+cd voice_notes_bot_telegram
+
+cp .env.example .env        # uzupełnij tokeny — patrz niżej
+mkdir -p data               # katalog na bazę SQLite
+
+docker compose up -d --build
+docker compose logs -f bot  # szukaj: 🚀 Bot uruchomiony!
 ```
 
-### 3. Utwórz bota w Telegram
+Aplikacja webowa startuje razem z botem pod `http://localhost:5000`.
 
-1. Otwórz [@BotFather](https://t.me/BotFather) w Telegram
-2. Wyślij `/newbot`
-3. Podaj nazwę i username bota
-4. **Zapisz TOKEN** który otrzymasz
-
-### 4. Znajdź swój Telegram User ID
-
-Możesz użyć bota [@userinfobot](https://t.me/userinfobot) - wyślij `/start` i otrzymasz swój ID.
-
-### 5. Skonfiguruj zmienne środowiskowe
-
-Skopiuj `.env.example` do `.env`:
+Przydatne polecenia:
 
 ```bash
-cp .env.example .env
+docker compose logs -f bot      # podgląd logów bota
+docker compose restart bot      # restart po zmianie .env
+docker compose up -d --build    # przebudowa po zmianie kodu
+docker compose down             # zatrzymanie
 ```
 
-Edytuj `.env` i uzupełnij:
+### Bez Dockera
 
-```env
-TELEGRAM_BOT_TOKEN=twoj_bot_token_tutaj
-ALLOWED_USER_IDS=twoj_user_id_tutaj
-OPENAI_API_KEY=twoj_openai_api_key_tutaj
-DATABASE_PATH=voice_notes.db
-```
-
-**WAŻNE:** Jeśli chcesz dać dostęp wielu osobom, wpisz ID oddzielone przecinkami:
-```env
-ALLOWED_USER_IDS=123456789,987654321
-```
-
-### 6. Uruchom bota
+Bot i aplikacja webowa mają rozdzielne zależności i uruchamia się je jako dwa procesy:
 
 ```bash
-python bot.py
+python -m venv venv && source venv/bin/activate
+
+pip install -r requirements-bot.txt && python bot.py     # albo ./start_bot.sh
+pip install -r requirements-web.txt && python web_app.py # albo ./start_web.sh
 ```
 
-Powinieneś zobaczyć:
+Generowanie PDF wymaga bibliotek systemowych WeasyPrint (Pango, Cairo, gdk-pixbuf).
+Na Debianie/Ubuntu/Mincie:
+
+```bash
+sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 \
+                 shared-mime-info fonts-dejavu-core
 ```
-🚀 Bot uruchomiony!
-```
 
-### 7. Testuj bota
+> **Uwaga:** Telegram pozwala tylko jednej instancji odpytywać token. Bot w kontenerze
+> i bot z venv nie mogą działać jednocześnie — ten, który przegra, będzie logował
+> `409 Conflict`.
 
-1. Otwórz Telegram i znajdź swojego bota
-2. Wyślij `/start`
-3. Wyślij voice message
-4. Bot automatycznie przetworzy i wyświeci strukturę notatki!
+### Konfiguracja `.env`
 
-## 📱 Jak używać
+| Zmienna | Wymagana | Opis |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | tak | Token od @BotFather |
+| `ALLOWED_USER_IDS` | tak | Lista dozwolonych ID po przecinku, np. `123456789,987654321` |
+| `OPENAI_API_KEY` | tak | Klucz API OpenAI |
+| `DATABASE_PATH` | nie | Ścieżka pliku SQLite (domyślnie `voice_notes.db`) |
+| `DATABASE_URL` | nie | Adres PostgreSQL/Supabase — jeśli ustawiony, wypiera SQLite |
+| `WEB_SECRET_KEY` | dla weba | Sekret sesji Flaska |
+| `WEB_APP_URL` | dla weba | Adres, pod który bot wysyła kody logowania |
 
-### Komendy
+W Dockerze `DATABASE_PATH` i `WEB_APP_URL` są nadpisywane przez `docker-compose.yml`
+wartościami właściwymi dla sieci kontenerów — nie trzeba ich ustawiać ręcznie.
 
-- `/start` - Rozpocznij i zobacz instrukcje
-- `/lista` - Pokaż ostatnie 10 notatek
-- `/szukaj [słowo]` - Wyszukaj notatki po słowach kluczowych
-- `/zadania` - Pokaż wszystkie niewykonane zadania
-- `/wykonane [id]` - Oznacz zadanie jako wykonane
-- `/stats` - Statystyki (liczba notatek, zadań, itp.)
+## 📱 Komendy
 
-### Workflow dodawania notatki
+| Komenda | Działanie |
+|---|---|
+| `/start` | Powitanie i ściąga z komend |
+| `/lista` | 10 ostatnich notatek |
+| `/ostatnia` | Najnowsza notatka |
+| `/notatka [id]` | Pełna notatka wraz z nagraniem |
+| `/szukaj [tekst]` | Wyszukiwanie **tekstowe** po temacie, opisie i transkrypcji |
+| `/zadania` | Niewykonane zadania |
+| `/wykonane [id]` | Oznacz zadanie jako zrobione |
+| `/stats` | Statystyki i koszty |
 
-1. **Wyślij voice message** na czat z botem
-2. Bot odpowiada: "🎤 Nagranie otrzymane! Przetwarzam..."
-3. Bot transkrybuje przez **Whisper**
-4. Bot analizuje przez **GPT-4o-mini** i wyciąga:
-   - 📌 Temat
-   - 📝 Opis
-   - ✅ Zadania do zrobienia
-5. Bot pokazuje podgląd:
-   ```
-   ✅ Notatka przetworzona!
+## 🔄 Jak przebiega dodanie notatki
 
-   📌 TEMAT:
-   Zakupy i spotkanie z Jankiem
+1. Wysyłasz voice message lub plik audio → `🎤 Plik audio otrzymany! Przetwarzam...`
+2. Whisper transkrybuje nagranie.
+3. Jeśli pierwsze słowo to `szukaj`, `znajdź`, `wyszukaj`, `pokaż`, `search`, `find`
+   lub `znajdz` — bot nie tworzy notatki, tylko wyszukuje (patrz niżej).
+4. Możesz dołożyć kolejne nagrania (`➕ Dodaj więcej nagrań`) albo przejść dalej
+   (`✅ To wszystko - przetwórz`).
+5. Przy nagraniu dłuższym niż **5 minut** bot pyta, czy przeprowadzić dogłębną analizę.
+6. GPT-4o-mini zwraca strukturę, bot pokazuje podgląd z przyciskami
+   `📸 Dodaj zdjęcia` / `⏭️ Pomiń` / `✏️ Edytuj temat` / `❌ Anuluj`.
+7. Po zdjęciach bot proponuje wygenerowanie PDF-a.
+8. Notatka trafia do bazy razem z embeddingiem i rozpisanymi kosztami.
 
-   📝 OPIS:
-   Kupić mleko, chleb, masło. Spotkanie z Jankiem jutro o 15:00
+Istniejącą notatkę można uzupełnić kolejnym nagraniem — przycisk `🎤 Uzupełnij nagraniem`
+dokleja nową transkrypcję i przelicza strukturę.
 
-   📋 ZADANIA:
-   1. Zadzwonić do dentysty
-   2. Wysłać maila do szefa
+## 🔍 Dwa różne wyszukiwania
 
-   💾 Zapisać tę notatkę?
-   [✅ Zapisz] [✏️ Edytuj temat] [❌ Anuluj]
-   ```
-6. Kliknij **✅ Zapisz** lub edytuj temat
+Warto je rozróżniać, bo działają zupełnie inaczej:
 
-## 🗄️ Struktura bazy danych
+- **Głosowe — semantyczne.** Powiedz „Szukaj spotkanie z Jankiem". Zapytanie idzie przez
+  `text-embedding-3-small`, a bot liczy podobieństwo kosinusowe do embeddingów wszystkich
+  notatek i zwraca 5 najlepszych **z procentem dopasowania**. Znajdzie notatkę
+  o zbliżonym znaczeniu, nawet bez wspólnych słów.
+- **`/szukaj` — tekstowe.** Zwykłe dopasowanie podciągu w temacie, opisie i transkrypcji.
+  Bez embeddingów i bez procentów. Znajdzie tylko dokładnie wpisany ciąg znaków.
 
-### Tabela: `notatki`
+## 🌐 Aplikacja webowa
 
-| Kolumna | Typ | Opis |
-|---------|-----|------|
-| id | INTEGER | Klucz główny |
-| telegram_user_id | INTEGER | ID użytkownika Telegram |
-| data_utworzenia | TIMESTAMP | Data i czas utworzenia |
-| temat | VARCHAR(255) | Tytuł notatki |
-| opis | TEXT | Szczegółowy opis |
-| transkrypcja | TEXT | Pełna transkrypcja audio |
-| audio_file_id | TEXT | ID pliku audio w Telegram |
+Flask pod `http://localhost:5000`, dzielący bazę z botem. Pozwala przeglądać notatki
+(z filtrowaniem, sortowaniem i wyszukiwaniem), odhaczać zadania, oglądać statystyki
+kosztów i przygotować notatkę do wysłania mailem. Zdjęcia są pobierane na żywo z serwerów
+Telegrama — w bazie leżą wyłącznie identyfikatory plików.
 
-### Tabela: `zadania`
+Logowanie działa na dwa sposoby: przez widget Telegram Login (weryfikacja HMAC) albo
+6-cyfrowym kodem, który bot wysyła po `/start webapp_login`. Kod jest ważny 5 minut
+i trzymany w pamięci procesu — restart aplikacji go unieważnia.
 
-| Kolumna | Typ | Opis |
-|---------|-----|------|
-| id | INTEGER | Klucz główny |
-| notatka_id | INTEGER | Klucz obcy do notatki |
-| zadanie | TEXT | Treść zadania |
-| wykonane | BOOLEAN | Czy wykonane |
-| data_wykonania | TIMESTAMP | Kiedy wykonano |
+## 🗄️ Baza danych
 
-## 🌐 Deployment na Google Cloud (f1-micro - DARMOWY)
+SQLite z włączonym trybem WAL, albo PostgreSQL/Supabase po ustawieniu `DATABASE_URL`.
+Dwie tabele — źródłem prawdy dla schematu jest `database.py`:
 
-Zobacz szczegółową instrukcję w pliku: **[GOOGLE_CLOUD_SETUP.md](GOOGLE_CLOUD_SETUP.md)**
+**`notatki`** — 31 kolumn w kilku grupach:
 
-**Skrócona wersja:**
+| Grupa | Kolumny |
+|---|---|
+| Podstawowe | `id`, `telegram_user_id`, `data_utworzenia`, `temat`, `opis`, `transkrypcja` |
+| Załączniki | `audio_file_id`, `photo_file_ids` (JSON) |
+| Struktura | `kategoria`, `kluczowe_mysli`, `terminy`, `auto_category_confidence` |
+| Wyszukiwanie | `embedding` (JSON z wektorem 1536 wymiarów) |
+| Koszty | `audio_duration_seconds`, `tokens_*`, `cost_*_usd`, `processing_time` |
+| Dogłębna analiza | `czy_analizowane`, `analiza_tytul`, `analiza_uczestnicy`, `analiza_sekcje`, `analiza_ustalenia`, `analiza_daty_chronologicznie`, `analiza_podsumowanie_dat` |
+| Kasowanie | `deleted_at` |
 
-1. Załóż konto Google Cloud (free tier)
-2. Utwórz f1-micro VM (region us-west1/us-central1/us-east1)
-3. Zaloguj się przez SSH
-4. Zainstaluj Python i zależności
-5. Skopiuj kod bota
-6. Skonfiguruj `.env`
-7. Uruchom bota w tle (systemd lub screen)
+**`zadania`** — `id`, `notatka_id`, `zadanie`, `wykonane`, `data_wykonania`.
 
-**Koszt: $0/miesiąc** (w ramach free tier)
+Dwie decyzje projektowe, które łatwo przeoczyć:
 
-## 💰 Koszty OpenAI API
+- **Miękkie usuwanie.** Notatki nigdy nie znikają z bazy — kasowanie ustawia `deleted_at`,
+  a wszystkie odczyty filtrują po `deleted_at IS NULL`.
+- **Koszty jako TEXT.** Kwoty rzędu ułamków centa gubiłyby precyzję w kolumnach `REAL`,
+  dlatego trzymane są jako tekst.
 
-- **Whisper**: ~$0.006 za minutę nagrania
-- **GPT-4o-mini**: ~$0.0001-0.0002 za notatkę
+Zmiany schematu wprowadzają skrypty `migrate_*.py`, uruchamiane jednorazowo —
+`Base.metadata.create_all()` tworzy brakujące tabele, ale nie dodaje kolumn do istniejących.
 
-**Szacunkowy koszt:** 50 notatek/miesiąc = **~$1-2/miesiąc**
+## 💰 Koszty OpenAI
+
+| Składnik | Stawka |
+|---|---|
+| Whisper | $0.006 / minutę nagrania |
+| GPT-4o-mini | $0.15 / 1M tokenów wejścia, $0.60 / 1M wyjścia |
+| text-embedding-3-small | $0.02 / 1M tokenów |
+
+W praktyce sama strukturyzacja krótkiej notatki kosztuje ok. **$0.0002**; rachunek robi
+transkrypcja. Przy 50 notatkach po 2 minuty wychodzi ok. **$0.60/miesiąc**.
+
+Stawki są zapisane na sztywno w `cost_calculator.py` (stan na grudzień 2025) — przy zmianie
+modelu trzeba je zaktualizować, inaczej historyczne koszty przestaną się zgadzać.
 
 ## 📂 Struktura projektu
 
 ```
-25_wrozenia_aplikacji_notatki/
-├── bot.py                  # Główny plik bota
-├── config.py               # Konfiguracja
-├── database.py             # Logika bazy danych (SQLAlchemy)
-├── ai_processor.py         # OpenAI Whisper + GPT
-├── requirements-bot.txt    # Zależności Python
-├── .env.example            # Przykładowa konfiguracja
-├── .gitignore              # Ignorowane pliki
-├── README.md               # Ten plik
-├── GOOGLE_CLOUD_SETUP.md   # Instrukcja deployment na GCP
-└── voice_notes.db          # Baza SQLite (tworzona automatycznie)
+voice_notes_bot_telegram/
+├── bot.py                  # Bot Telegram — handlery i przepływy konwersacji
+├── web_app.py              # Aplikacja webowa (Flask)
+├── ai_processor.py         # Whisper, GPT, embeddingi
+├── cost_calculator.py      # Przeliczanie zużycia API na dolary
+├── database.py             # Modele i dostęp do bazy (SQLAlchemy)
+├── config.py               # Konfiguracja i prompty GPT
+├── templates/              # Szablony HTML aplikacji webowej
+├── static/                 # Style
+├── migrate_*.py            # Migracje schematu
+├── Dockerfile              # Obraz wielostopniowy: targety bot i web
+├── docker-compose.yml      # Definicja obu usług
+├── requirements-bot.txt    # Zależności bota
+├── requirements-web.txt    # Zależności aplikacji webowej
+└── data/                   # Baza SQLite (wolumen Dockera)
 ```
+
+Instrukcje wdrożeniowe znajdują się w osobnych plikach: `GOOGLE_CLOUD_SETUP.md`,
+`SUPABASE_SETUP.md`, `LINUX_MINT_SETUP.md`, `CLOUD_STORAGE_SETUP.md`.
+Opis architektury dla asystentów AI: `CLAUDE.md`.
 
 ## 🔒 Bezpieczeństwo
 
-1. **Whitelist użytkowników**: Tylko osoby z ID w `ALLOWED_USER_IDS` mają dostęp
-2. **Zmienne środowiskowe**: Wszystkie sekrety w `.env` (nigdy nie commituj!)
-3. **SQLite lokalnie**: Baza tylko na Twoim serwerze
-4. **HTTPS**: Telegram API używa szyfrowania
+- **Whitelist.** Dekorator `@check_user_allowed` chroni wszystkie komendy oraz wejście
+  na ścieżkę audio, więc obcy użytkownik nie rozpocznie żadnego przepływu. Handler
+  przycisków inline (`button_handler`) nie ma osobnej weryfikacji — jest osiągalny
+  dopiero z klawiatury, którą bot wysyła autoryzowanej osobie, a wszystkie zapytania
+  do bazy i tak filtrują po `telegram_user_id`. Dodanie dekoratora także tam byłoby
+  jednak porządniejsze.
+- **Sekrety w `.env`.** Plik jest w `.gitignore` i nie trafia do obrazu Dockera;
+  kontenery dostają go przez `env_file` dopiero przy starcie.
+- **Port tylko lokalnie.** `docker-compose.yml` wystawia aplikację webową na
+  `127.0.0.1:5000`, ponieważ widoki `/notes`, `/tasks` i `/statistics` **nie mają
+  jeszcze kontroli logowania**. Zanim udostępnisz ją w sieci, dopisz autoryzację.
 
-## 🐛 Troubleshooting
+## 🐛 Rozwiązywanie problemów
 
-### Bot nie odpowiada
+**`telegram.error.Conflict: terminated by other getUpdates request`**
+Działa druga instancja bota na tym samym tokenie. Sprawdź `docker compose ps` oraz
+`systemctl is-active voice-notes-bot` i zostaw tylko jedną.
 
-1. Sprawdź czy bot jest uruchomiony: `ps aux | grep bot.py`
-2. Sprawdź logi w terminalu
-3. Sprawdź czy User ID jest w `ALLOWED_USER_IDS`
+**`openai.AuthenticationError: 401`**
+Klucz jest nieważny lub należy do innego projektu. Podmień `OPENAI_API_KEY` w `.env`
+i zrób `docker compose up -d bot` — przebudowa nie jest potrzebna.
 
-### Błąd "TELEGRAM_BOT_TOKEN nie jest ustawiony"
+**Bot nie odpowiada**
+`docker compose logs -f bot`, a bez Dockera `ps aux | grep bot.py`. Upewnij się, że Twoje
+Telegram User ID faktycznie jest w `ALLOWED_USER_IDS`.
 
-Sprawdź czy plik `.env` istnieje i ma poprawny token.
+**Brak uprawnień do katalogu `data/`**
+Kontenery działają jako uid/gid 1000. Jeśli `data/` powstał jako własność roota
+(bo Docker utworzył go automatycznie), napraw to: `sudo chown -R 1000:1000 data`.
 
-### Błąd OpenAI API
+## 🗺️ Plany
 
-1. Sprawdź czy `OPENAI_API_KEY` jest poprawny
-2. Sprawdź czy masz środki na koncie OpenAI
-3. Sprawdź limity API: https://platform.openai.com/usage
-
-### Baza danych nie działa
-
-Sprawdź uprawnienia do katalogu (bot musi móc tworzyć plik `.db`):
-```bash
-chmod 755 .
-```
-
-## 📝 TODO (Przyszłe funkcje)
-
-- [ ] Eksport notatek do PDF/Markdown
-- [ ] Przypomnienia o zadaniach (notifications)
-- [ ] Kategorie/tagi dla notatek
-- [ ] Multi-language support
-- [ ] Web dashboard (Flask/FastAPI)
-
-## 🤝 Kontakt
-
-Masz pytania? Otwórz issue na GitHubie!
+- [ ] Przypomnienia o zadaniach z terminem
+- [ ] Kontrola logowania na wszystkich widokach aplikacji webowej
+- [ ] Odczyt rzeczywistej długości nagrania zamiast szacowania z rozmiaru pliku
+- [ ] Obsługa innych języków niż polski
+- [ ] Weryfikacja whitelisty również w handlerze przycisków inline
 
 ## 📄 Licencja
 
-MIT License - używaj jak chcesz! 🎉
+MIT.
