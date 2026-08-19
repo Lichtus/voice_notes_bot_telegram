@@ -25,6 +25,7 @@ class Notatka(Base):
     temat = Column(String(255), nullable=False)
     opis = Column(Text)
     transkrypcja = Column(Text)
+    transkrypcja_segmenty = Column(Text)  # JSON: [{mowca,start,end,tekst,czesc}] z diaryzacji
     audio_file_id = Column(Text)  # Telegram file_id
     photo_file_ids = Column(Text)  # JSON array z Telegram file_id zdjęć
     embedding = Column(Text)  # JSON embedding dla semantic search
@@ -66,6 +67,23 @@ class Notatka(Base):
 
     def __repr__(self):
         return f"<Notatka(id={self.id}, temat='{self.temat}', data={self.data_utworzenia})>"
+
+
+class Ustawienie(Base):
+    """
+    Ustawienia per użytkownik, np. wybrany dostawca transkrypcji.
+
+    Nowa tabela nie wymaga migracji — create_all() zakłada ją przy starcie.
+    """
+    __tablename__ = 'ustawienia'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_user_id = Column(Integer, nullable=False)
+    klucz = Column(String(50), nullable=False)
+    wartosc = Column(Text)
+
+    def __repr__(self):
+        return f"<Ustawienie({self.telegram_user_id}, {self.klucz}={self.wartosc})>"
 
 
 class Zadanie(Base):
@@ -127,7 +145,8 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id,
+                    segmenty=None, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -222,6 +241,7 @@ class Database:
             temat=temat,
             opis=opis,
             transkrypcja=transkrypcja,
+            transkrypcja_segmenty=json.dumps(segmenty, ensure_ascii=False) if segmenty else None,
             audio_file_id=audio_file_id,
             photo_file_ids=photos_json,
             embedding=embedding_json,
@@ -244,6 +264,7 @@ class Database:
         return notatka
 
     def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
+                       segmenty=None,
                        zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None,
                        kluczowe_mysli=None, terminy=None, czy_analizowane=None, analiza_data=None):
         """
@@ -296,6 +317,9 @@ class Database:
             notatka.opis = opis
         if transkrypcja is not None:
             notatka.transkrypcja = transkrypcja
+
+        if segmenty is not None:
+            notatka.transkrypcja_segmenty = json.dumps(segmenty, ensure_ascii=False) if segmenty else None
         if kategoria is not None:
             notatka.kategoria = kategoria
 
@@ -389,6 +413,25 @@ class Database:
 
         self.session.commit()
         return notatka
+
+    def get_ustawienie(self, telegram_user_id, klucz, domyslne=None):
+        """Zwraca wartość ustawienia albo wartość domyślną."""
+        u = self.session.query(Ustawienie).filter_by(
+            telegram_user_id=telegram_user_id, klucz=klucz).first()
+        return u.wartosc if u and u.wartosc else domyslne
+
+    def set_ustawienie(self, telegram_user_id, klucz, wartosc):
+        """Zapisuje ustawienie, nadpisując poprzednią wartość."""
+        u = self.session.query(Ustawienie).filter_by(
+            telegram_user_id=telegram_user_id, klucz=klucz).first()
+        if u:
+            u.wartosc = wartosc
+        else:
+            self.session.add(Ustawienie(telegram_user_id=telegram_user_id,
+                                        klucz=klucz, wartosc=wartosc))
+        self.session.commit()
+        logger.info(f"Ustawienie {klucz}={wartosc} dla użytkownika {telegram_user_id}")
+        return wartosc
 
     def get_notatka_by_id(self, notatka_id, telegram_user_id, include_deleted=False):
         """

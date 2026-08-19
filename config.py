@@ -12,6 +12,20 @@ ALLOWED_USER_IDS = [int(uid) for uid in os.getenv("ALLOWED_USER_IDS", "").split(
 
 # OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Dostawca transkrypcji: "assemblyai" albo "openai".
+#
+# AssemblyAI grupuje mówców globalnie po całym nagraniu, więc etykiety są
+# spójne od początku do końca. OpenAI grupuje w obrębie fragmentu i na dłuższych
+# nagraniach potrafi zarówno rozjechać etykiety, jak i skleić dwie osoby w jedną.
+# Cena AssemblyAI to ok. połowa stawki OpenAI. Polska transkrypcja bywa u niego
+# odrobinę mniej dokładna — stąd przełącznik, a nie zamiana na sztywno.
+TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "assemblyai")
+
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+ASSEMBLYAI_LANGUAGE = os.getenv("ASSEMBLYAI_LANGUAGE", "pl")
+
+# Modele OpenAI — używane, gdy dostawcą jest "openai" albo awaryjnie.
+TRANSCRIPTION_MODEL = "gpt-4o-transcribe-diarize"
 WHISPER_MODEL = "whisper-1"
 GPT_MODEL = "gpt-4o-mini"
 

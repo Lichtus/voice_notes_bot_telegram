@@ -1,0 +1,56 @@
+# Voice Bot v2 — izolowane środowisko testowe dla diaryzacji (rozpoznawania mówców).
+#
+#   docker compose -f docker-compose.v2.yml up -d --build
+#   docker compose -f docker-compose.v2.yml exec v2 python probe_diarize.py
+#   docker compose -f docker-compose.v2.yml down
+#
+# Oddzielona od produkcji na trzech poziomach:
+#   - własna nazwa projektu, więc osobne kontenery i sieć
+#   - baza to kopia w data/test — prawdziwe notatki są nietykalne
+#
+# UWAGA: v2 odpytuje Telegram tym samym tokenem co produkcja, a Telegram
+# dopuszcza tylko jednego odpytującego. Produkcja MUSI być zatrzymana:
+#     docker compose down
+# Chcąc uruchamiać oba naraz, załóż drugiego bota w @BotFather i podmień
+# TELEGRAM_BOT_TOKEN w sekcji environment poniżej.
+
+name: voice-bot-v2
+
+services:
+  v2:
+    build:
+      context: .
+      target: bot
+    image: voice-bot-v2:local
+    container_name: voice-bot-v2
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/voice_notes.db
+    volumes:
+      # Cały katalog, nie pojedyncze pliki: montowanie plików rozjeżdża się
+      # przy nadpisaniu (kontener trzyma stary i-node) i widzi nieaktualny kod.
+      - .:/app
+      # Bardziej szczegółowy mount wygrywa — baza testowa przykrywa data/.
+      - ./data/test:/app/data
+    # Pełny bot — reaguje na nagrania w Telegramie. Notatki lądują w bazie
+    # testowej (data/test), więc nie mieszają się z produkcyjnymi.
+    command: ["python", "bot.py"]
+    restart: unless-stopped
+
+  web-v2:
+    build:
+      context: .
+      target: web
+    image: voice-bot-v2-web:local
+    container_name: voice-bot-v2-web
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/voice_notes.db
+    volumes:
+      - .:/app
+      - ./data/test:/app/data
+    ports:
+      # 5001, żeby nie kolidować z produkcyjnym webem na 5000.
+      # Tylko localhost — widoki nie mają kontroli logowania.
+      - "127.0.0.1:5001:5000"
+    restart: unless-stopped

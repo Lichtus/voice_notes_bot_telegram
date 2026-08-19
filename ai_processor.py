@@ -2,15 +2,22 @@
 Moduł przetwarzania audio i ekstrakcji struktury przez OpenAI
 """
 import json
+import requests
+import time
 import logging
 from io import BytesIO
 from openai import OpenAI
-from config import OPENAI_API_KEY, WHISPER_MODEL, GPT_MODEL, EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT
+from config import (OPENAI_API_KEY, TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
+                    WHISPER_MODEL, GPT_MODEL, ASSEMBLYAI_API_KEY,
+                    ASSEMBLYAI_LANGUAGE, EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT)
 
 logger = logging.getLogger(__name__)
 
 # Model dla embeddingów
 EMBEDDING_MODEL = "text-embedding-3-small"
+
+ASSEMBLYAI_API = "https://api.assemblyai.com/v2"
+ASSEMBLYAI_TIMEOUT_S = 600
 
 
 class AIProcessor:
@@ -19,42 +26,182 @@ class AIProcessor:
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def transcribe_audio(self, audio_bytes, filename="voice.ogg"):
+    def transcribe_audio(self, audio_bytes, filename="voice.ogg", liczba_mowcow=None,
+                         dostawca=None):
         """
-        Transkrybuje audio do tekstu używając Whisper
+        Transkrybuje audio z rozpoznaniem mówców.
 
         Args:
             audio_bytes: Bajty pliku audio
-            filename: Nazwa pliku (dla OpenAI API)
+            filename: Nazwa pliku — MUSI mieć rozszerzenie zgodne z rzeczywistą
+                zawartością, API odrzuca niepasujące (np. plik M4A nazwany .ogg)
+            dostawca: "assemblyai", "openai" albo "whisper". Gdy None, brany
+                jest TRANSCRIPTION_PROVIDER z konfiguracji.
+            liczba_mowcow: Dokładna liczba osób w nagraniu. Przy krótkich
+                nagraniach grupowanie samo jej nie odgadnie i potrafi skleić
+                dwie osoby w jedną. Obsługiwane tylko przez AssemblyAI —
+                API przyjmuje dokładną liczbę, nie zakres.
 
         Returns:
-            tuple: (transcript_text, duration_seconds)
-                - transcript_text: Transkrypcja tekstu
-                - duration_seconds: Szacowana długość audio w sekundach
+            dict: {
+                "tekst": str,          pełna transkrypcja
+                "czas_s": int,         RZECZYWISTY czas nagrania z API
+                "segmenty": list,      [{"mowca","start","end","tekst"}], puste dla whisper-1
+                "mowcy": list[str],    posortowane etykiety mówców, np. ["A","B"]
+                "tokeny_input": int,
+                "tokeny_output": int,
+            }
         """
+        dostawca = dostawca or TRANSCRIPTION_PROVIDER
+        logger.info(f"Transkrypcja: {len(audio_bytes)} bajtów, dostawca {dostawca}")
+
+        if dostawca == "whisper":
+            return self._transkrypcja_awaryjna(audio_bytes, filename)
+
+        if dostawca == "assemblyai":
+            try:
+                return self._transkrypcja_assemblyai(audio_bytes, liczba_mowcow)
+            except Exception as e:
+                # Awaria zewnętrznego dostawcy nie może kosztować użytkownika notatki
+                logger.warning(f"AssemblyAI zawiódł ({e}); przechodzę na OpenAI")
+
+        if liczba_mowcow:
+            logger.info("OpenAI nie przyjmuje podpowiedzi o liczbie mówców — pomijam")
+        return self._transkrypcja_openai(audio_bytes, filename)
+
+    def _transkrypcja_assemblyai(self, audio_bytes, liczba_mowcow=None):
+        """
+        Diaryzacja z globalnym grupowaniem mówców — etykiety są spójne przez
+        całe nagranie i nie wymagają żadnych próbek głosu.
+        """
+        if not ASSEMBLYAI_API_KEY:
+            raise RuntimeError("brak ASSEMBLYAI_API_KEY")
+
+        naglowki = {"authorization": ASSEMBLYAI_API_KEY}
+
+        wgrane = requests.post(f"{ASSEMBLYAI_API}/upload", headers=naglowki,
+                               data=audio_bytes, timeout=180)
+        wgrane.raise_for_status()
+
+        zadanie = {"audio_url": wgrane.json()["upload_url"],
+                   "speaker_labels": True,
+                   "language_code": ASSEMBLYAI_LANGUAGE}
+        if liczba_mowcow:
+            zadanie["speakers_expected"] = liczba_mowcow
+
+        zlecenie = requests.post(f"{ASSEMBLYAI_API}/transcript", headers=naglowki,
+                                 timeout=30, json=zadanie)
+        zlecenie.raise_for_status()
+        tid = zlecenie.json()["id"]
+
+        koniec = time.time() + ASSEMBLYAI_TIMEOUT_S
+        while True:
+            if time.time() > koniec:
+                raise TimeoutError(f"brak wyniku po {ASSEMBLYAI_TIMEOUT_S}s")
+            stan = requests.get(f"{ASSEMBLYAI_API}/transcript/{tid}",
+                                headers=naglowki, timeout=30).json()
+            if stan["status"] == "completed":
+                break
+            if stan["status"] == "error":
+                raise RuntimeError(stan.get("error", "nieznany błąd"))
+            time.sleep(3)
+
+        # Gdy diaryzacja nie zadziała dla języka, utterances bywa puste —
+        # wtedy zostaje sam tekst, bez podziału na mówców.
+        segmenty = [
+            {
+                "mowca": u["speaker"],
+                "start": round(u["start"] / 1000, 2),
+                "end": round(u["end"] / 1000, 2),
+                "tekst": u["text"].strip(),
+            }
+            for u in (stan.get("utterances") or [])
+        ]
+        mowcy = sorted({s["mowca"] for s in segmenty})
+        czas = int(round(stan.get("audio_duration") or 0)) or 1
+
+        podpowiedz = f", podpowiedź: {liczba_mowcow} os." if liczba_mowcow else ""
+        logger.info(f"AssemblyAI: {czas}s, {len(segmenty)} wypowiedzi, "
+                    f"mówcy: {mowcy or 'brak'}, pewność: {stan.get('confidence')}{podpowiedz}")
+
+        return {
+            "tekst": stan.get("text") or "",
+            "czas_s": czas,
+            "segmenty": segmenty,
+            "mowcy": mowcy,
+            "tokeny_input": 0,      # rozliczenie za czas, nie za tokeny
+            "tokeny_output": 0,
+            "dostawca": "assemblyai",
+        }
+
+    def _transkrypcja_openai(self, audio_bytes, filename):
+        """Diaryzacja OpenAI — grupuje mówców w obrębie fragmentu."""
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = filename
+
         try:
-            audio_file = BytesIO(audio_bytes)
-            audio_file.name = filename
-
-            logger.info(f"Rozpoczynam transkrypcję audio ({len(audio_bytes)} bajtów)")
-
-            # Szacowanie długości audio na podstawie rozmiaru pliku
-            # Dla OGG Opus: ~6-12 KB/s (zależne od jakości)
-            # Używamy konserwatywnego szacunku: 10 KB/s
-            estimated_duration = max(1, len(audio_bytes) / 10000)  # w sekundach
-
-            transcript = self.client.audio.transcriptions.create(
+            odp = self.client.audio.transcriptions.create(
                 file=audio_file,
-                model=WHISPER_MODEL,
-                response_format="text"
+                model=TRANSCRIPTION_MODEL,
+                response_format="diarized_json",
+                # WYMAGANE przez modele diaryzujące dla nagrań dłuższych niż
+                # 30 sekund — bez tego API zwraca 400. "auto" normalizuje
+                # głośność i tnie nagranie po wykryciu aktywności głosowej.
+                chunking_strategy="auto",
             )
-
-            logger.info(f"Transkrypcja zakończona: {len(transcript)} znaków, ~{estimated_duration:.1f}s")
-            return transcript, int(estimated_duration)
-
         except Exception as e:
-            logger.error(f"Błąd podczas transkrypcji: {e}")
-            raise
+            # Nie zostawiamy użytkownika bez notatki, jeśli model diaryzujący
+            # zawiedzie — Whisper nie da mówców, ale da treść.
+            logger.warning(f"Model diaryzujący zawiódł ({e}); używam {WHISPER_MODEL}")
+            return self._transkrypcja_awaryjna(audio_bytes, filename)
+
+        segmenty = [
+            {
+                "mowca": s.speaker,
+                "start": round(s.start, 2),
+                "end": round(s.end, 2),
+                "tekst": s.text.strip(),
+            }
+            for s in (odp.segments or [])
+        ]
+        mowcy = sorted({s["mowca"] for s in segmenty})
+
+        uzycie = getattr(odp, "usage", None)
+        tok_in = getattr(uzycie, "input_tokens", 0) or 0
+        tok_out = getattr(uzycie, "output_tokens", 0) or 0
+
+        czas = int(round(odp.duration or 0)) or 1
+        logger.info(
+            f"Transkrypcja: {len(odp.text)} znaków, {czas}s, "
+            f"{len(segmenty)} segmentów, mówcy: {mowcy or 'brak'}"
+        )
+
+        return {
+            "tekst": odp.text,
+            "czas_s": czas,
+            "segmenty": segmenty,
+            "mowcy": mowcy,
+            "tokeny_input": tok_in,
+            "tokeny_output": tok_out,
+            "dostawca": "openai",
+        }
+
+    def _transkrypcja_awaryjna(self, audio_bytes, filename):
+        """Whisper bez diaryzacji. Czasu nagrania nie zna, więc go szacuje."""
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = filename
+        tekst = self.client.audio.transcriptions.create(
+            file=audio_file, model=WHISPER_MODEL, response_format="text"
+        )
+        return {
+            "tekst": tekst,
+            "czas_s": max(1, int(len(audio_bytes) / 10000)),
+            "segmenty": [],
+            "mowcy": [],
+            "tokeny_input": 0,
+            "tokeny_output": 0,
+            "dostawca": "whisper",
+        }
 
     def extract_structure(self, transcription):
         """
@@ -223,8 +370,10 @@ class AIProcessor:
         try:
             from cost_calculator import CostCalculator
 
-            # Krok 1: Transkrypcja
-            transcription, audio_duration = self.transcribe_audio(audio_bytes, filename)
+            # Krok 1: Transkrypcja (z rozpoznaniem mówców)
+            tr = self.transcribe_audio(audio_bytes, filename)
+            transcription = tr["tekst"]
+            audio_duration = tr["czas_s"]
 
             # Krok 2: Ekstrakcja struktury (ze smart klasyfikacją)
             structure, gpt_usage = self.extract_structure(transcription)
@@ -235,7 +384,8 @@ class AIProcessor:
             embedding, embedding_tokens = self.get_embedding(embedding_text)
 
             # Krok 4: Obliczanie kosztów
-            cost_whisper = CostCalculator.calculate_whisper_cost(audio_duration)
+            cost_whisper = CostCalculator.calculate_transcription_cost(
+                audio_duration, tr.get("dostawca") or TRANSCRIPTION_MODEL)
             cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
                 gpt_usage['input_tokens'],
                 gpt_usage['output_tokens']
@@ -255,6 +405,8 @@ class AIProcessor:
             # Połącz wyniki
             return {
                 "transkrypcja": transcription,
+                "segmenty": tr["segmenty"],
+                "mowcy": tr["mowcy"],
                 "temat": structure["temat"],
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],
