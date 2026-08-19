@@ -178,6 +178,45 @@ tabele od razu z pełnym schematem. Uwaga: nie dodaje natomiast kolumn do tabel,
 istnieją, więc podniesienie bazy założonej na starszej wersji modelu wymaga ręcznego
 `ALTER TABLE`. Historyczne skrypty migracyjne leżą poza repozytorium.
 
+## 💾 Kopie zapasowe
+
+Baza jest jedynym miejscem, w którym istnieją Twoje transkrypcje — nie jest w repozytorium
+ani w obrazie Dockera. `backup.py` robi z niej dobową migawkę:
+
+```bash
+python3 backup.py            # domyślnie data/voice_notes.db
+python3 backup.py inna.db    # albo wskazana baza
+```
+
+Skrypt tworzy w `data/backup/` dwa pliki opatrzone datą: kopię `.db` oraz eksport `.json`.
+Kopia powstaje przez `VACUUM INTO`, a nie zwykłe skopiowanie pliku — to istotne, bo przy
+działającej aplikacji część danych siedzi w pliku `-wal`, którego proste `cp` nie obejmuje
+i potrafi dać niespójną bazę. Świeża kopia jest następnie sprawdzana przez
+`PRAGMA integrity_check`, bo backup, którego nie da się odczytać, jest gorszy niż jego brak.
+
+Eksport JSON jest niezależny od SQLite — treść notatek, zadania oraz identyfikatory
+`audio_file_id` i `photo_file_ids` da się odczytać dowolnym narzędziem. Zachowanie
+identyfikatorów zostawia otwartą drogę do pobrania nagrań i zdjęć z Telegrama w przyszłości.
+Embeddingi są w eksporcie pomijane — zostają w pliku `.db`, a w JSON-ie zajmowałyby
+wielokrotnie więcej niż cała reszta.
+
+Rotacja zostawia kopie z ostatnich 14 dni oraz, bezterminowo, kopie z pierwszego dnia
+każdego miesiąca — uszkodzenie zauważone po kilku miesiącach nadal ma z czego zostać cofnięte.
+
+Uruchamianie z crona użytkownika (bez uprawnień roota):
+
+```cron
+30 21 * * * cd /ścieżka/do/projektu && /usr/bin/python3 backup.py >> data/backup/backup.log 2>&1
+```
+
+Celowo z crona, a nie z kontenera w `docker-compose.yml`: backup ma działać także wtedy,
+gdy stack jest zatrzymany albo się psuje.
+
+> **Uwaga:** kopie leżą na tym samym dysku co oryginał. Chronią przed przypadkowym
+> skasowaniem, błędem w kodzie i uszkodzeniem pliku — nie przed awarią dysku. Jeśli dane
+> mają przetrwać utratę maszyny, dopisz drugi cel zapisu w katalogu synchronizowanym
+> z chmurą albo na dysku zewnętrznym.
+
 ## 💰 Koszty OpenAI
 
 | Składnik | Stawka |
@@ -210,6 +249,7 @@ voice_notes_bot_telegram/
 ├── requirements-web.txt    # Zależności aplikacji webowej
 ├── migrate_to_supabase.py  # Przeniesienie danych z SQLite do PostgreSQL
 ├── view_database.py        # Przeglądarka bazy z linii poleceń
+├── backup.py               # Kopie zapasowe bazy
 └── data/                   # Baza SQLite (wolumen Dockera)
 ```
 
