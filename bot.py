@@ -86,6 +86,7 @@ async def handle_webapp_login(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         response = requests.post(
             f"{web_app_url}/api/store-code",
+            headers={"X-Bot-Secret": os.getenv("WEB_SECRET_KEY", "")},
             json={
                 'user_id': user_id,
                 'code': code,

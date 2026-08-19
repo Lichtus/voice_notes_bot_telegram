@@ -82,6 +82,14 @@ def verify_telegram_auth(auth_data):
     return True
 
 
+def biezacy_user_id():
+    """
+    ID zalogowanego użytkownika. Widoki używające tej funkcji są za
+    @login_required, więc sesja na pewno istnieje.
+    """
+    return int(session['telegram_user_id'])
+
+
 def login_required(f):
     """Dekorator wymagający zalogowania przez Telegram"""
     @wraps(f)
@@ -190,6 +198,14 @@ def api_store_code():
     API endpoint dla bota do przechowania wygenerowanego kodu
     Bot wywołuje ten endpoint po wygenerowaniu kodu
     """
+    # Bez tego każdy, kto dosięgnie tego portu, podłożyłby sobie kod logowania
+    # na dowolne user_id i wszedł przez /verify-code. Bot zna WEB_SECRET_KEY
+    # z tego samego .env, więc nie trzeba nowej zmiennej.
+    sekret = os.getenv('WEB_SECRET_KEY')
+    if not sekret or request.headers.get('X-Bot-Secret') != sekret:
+        logger.warning("Odrzucono /api/store-code — brak albo zły X-Bot-Secret")
+        return {'success': False, 'error': 'Unauthorized'}, 401
+
     try:
         data = request.get_json()
 
@@ -260,12 +276,14 @@ def verify_code_route():
 # ============================================
 
 @app.route('/')
+@login_required
 def index():
     """Strona główna - przekierowanie do notatek"""
     return redirect(url_for('notes_list'))
 
 
 @app.route('/notes')
+@login_required
 def notes_list():
     """Lista wszystkich notatek z wyszukiwaniem, filtrowaniem i sortowaniem"""
     from database import Notatka, Zadanie
@@ -273,7 +291,7 @@ def notes_list():
     from datetime import timedelta
 
     # Pobierz ID użytkownika z .env (tylko jeden użytkownik)
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Pobierz parametry z URL
     page = request.args.get('page', 1, type=int)
@@ -404,12 +422,13 @@ def notes_list():
 
 
 @app.route('/notes/<int:note_id>')
+@login_required
 def note_detail(note_id):
     """Szczegóły pojedynczej notatki"""
     from database import Notatka
 
     # Pobierz ID użytkownika z .env
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
     note = db.session.query(Notatka).filter_by(
@@ -474,11 +493,12 @@ def note_detail(note_id):
 
 
 @app.route('/notes/<int:note_id>/delete', methods=['POST'])
+@login_required
 def delete_note(note_id):
     """Usuwa notatkę (soft delete)"""
     from database import Database
 
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
     db_handler = Database()
 
     # Soft delete notatki
@@ -491,11 +511,12 @@ def delete_note(note_id):
 
 
 @app.route('/notes/<int:note_id>/update-category', methods=['POST'])
+@login_required
 def update_note_category(note_id):
     """Aktualizuje kategorię notatki"""
     from database import Database
 
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
     new_category = request.form.get('kategoria')
 
     # Walidacja kategorii
@@ -516,11 +537,12 @@ def update_note_category(note_id):
 
 
 @app.route('/tasks')
+@login_required
 def tasks_list():
     """Lista wszystkich zadań użytkownika"""
     from database import Notatka, Zadanie
 
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Pobierz parametry filtrowania
     status_filter = request.args.get('status', 'all', type=str)
@@ -583,11 +605,12 @@ def tasks_list():
 
 
 @app.route('/tasks/<int:task_id>/toggle', methods=['POST'])
+@login_required
 def toggle_task(task_id):
     """Przełącza status zadania (wykonane/niewykonane)"""
     from database import Zadanie, Notatka
 
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Znajdź zadanie i sprawdź czy należy do użytkownika
     task = db.session.query(Zadanie)\
@@ -764,13 +787,14 @@ def generate_email_html(note, base_url=None):
 
 
 @app.route('/notes/<int:note_id>/email')
+@login_required
 def prepare_email(note_id):
     """Przygotuj mailto link z notatką"""
     import urllib.parse
     from database import Notatka
 
     # Pobierz ID użytkownika z .env
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
     note = db.session.query(Notatka).filter_by(
@@ -843,13 +867,14 @@ ZADANIA:
 
 
 @app.route('/notes/<int:note_id>/photo/<int:photo_index>')
+@login_required
 def get_photo(note_id, photo_index):
     """Pobierz zdjęcie z Telegram i wyślij jako odpowiedź"""
     import requests
     from database import Notatka
 
     # Pobierz ID użytkownika z .env
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # Pobierz notatkę TYLKO jeśli należy do zalogowanego użytkownika
     note = db.session.query(Notatka).filter_by(
@@ -902,6 +927,7 @@ def get_photo(note_id, photo_index):
 
 
 @app.route('/statistics')
+@login_required
 def statistics():
     """Strona statystyk - profesjonalny dashboard z analizą AI"""
     from database import Notatka, Zadanie
@@ -909,7 +935,7 @@ def statistics():
     from datetime import datetime, timedelta
     import calendar
 
-    telegram_user_id = int(os.getenv('ALLOWED_USER_IDS', '0').split(',')[0])
+    telegram_user_id = biezacy_user_id()
 
     # === SEKCJA 1: Podsumowanie Kosztów ===
     notatki = db.session.query(Notatka).filter(
