@@ -48,7 +48,11 @@ class AIProcessor:
             odp = self.client.audio.transcriptions.create(
                 file=audio_file,
                 model=TRANSCRIPTION_MODEL,
-                response_format="diarized_json"
+                response_format="diarized_json",
+                # WYMAGANE przez modele diaryzujące dla nagrań dłuższych niż
+                # 30 sekund — bez tego API zwraca 400. "auto" normalizuje
+                # głośność i tnie nagranie po wykryciu aktywności głosowej.
+                chunking_strategy="auto",
             )
         except Exception as e:
             # Nie zostawiamy użytkownika bez notatki, jeśli model diaryzujący

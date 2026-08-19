@@ -13,7 +13,9 @@ import sys
 import requests
 
 from ai_processor import AIProcessor
-from bot import podsumowanie_mowcow, dialog_z_segmentow, tekst_transkrypcji
+import bot as bot_mod
+from bot import (podsumowanie_mowcow, dialog_z_segmentow,
+                 tekst_transkrypcji, odrzuc_biezaca_notatke)
 from database import Database
 from config import TRANSCRIPTION_MODEL
 
@@ -114,6 +116,30 @@ def main():
 
     db.soft_delete_notatka(n.id, n.telegram_user_id)
     db.soft_delete_notatka(monolog.id, n.telegram_user_id)
+
+    # ---------- 4. Odrzucanie notatki w trakcie ----------
+    print("\n4. Odrzucanie notatki")
+    UID = 999_000_001
+
+    bot_mod.pending_notes.pop(UID, None)
+    sprawdz("odrzucenie bez notatki nie wybucha",
+            "nie było czego odrzucać" in odrzuc_biezaca_notatke(UID))
+
+    bot_mod.pending_notes[UID] = {
+        "audio_parts": [{"bytes": b"x"}, {"bytes": b"y"}],
+        "photos": ["f1"],
+        "temat": "Rozmowa o *budżecie*_2026",
+    }
+    kom = odrzuc_biezaca_notatke(UID)
+    sprawdz("raportuje liczbę nagrań i zdjęć",
+            "nagrania: 2" in kom and "zdjęcia: 1" in kom)
+    sprawdz("czyści znaki składni Markdown z tematu",
+            "*" not in kom.split("temat:")[1] and "_" not in kom.split("temat:")[1],
+            "temat z * i _ nie wysypie wysyłki")
+    sprawdz("stan użytkownika wyczyszczony",
+            UID not in bot_mod.pending_notes)
+    sprawdz("powtórne odrzucenie jest bezpieczne",
+            "nie było czego odrzucać" in odrzuc_biezaca_notatke(UID))
 
     zdane = sum(wyniki)
     print(f"\n{'─'*54}\nZdane: {zdane}/{len(wyniki)}")

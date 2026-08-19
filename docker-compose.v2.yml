@@ -7,9 +7,12 @@
 # Oddzielona od produkcji na trzech poziomach:
 #   - własna nazwa projektu, więc osobne kontenery i sieć
 #   - baza to kopia w data/test — prawdziwe notatki są nietykalne
-#   - NIE uruchamia bot.py: Telegram dopuszcza jednego odpytującego na token,
-#     więc polling w testach zabiłby produkcyjnego bota. Kontener stoi
-#     bezczynnie, testy odpalamy przez exec.
+#
+# UWAGA: v2 odpytuje Telegram tym samym tokenem co produkcja, a Telegram
+# dopuszcza tylko jednego odpytującego. Produkcja MUSI być zatrzymana:
+#     docker compose down
+# Chcąc uruchamiać oba naraz, załóż drugiego bota w @BotFather i podmień
+# TELEGRAM_BOT_TOKEN w sekcji environment poniżej.
 
 name: voice-bot-v2
 
@@ -24,13 +27,12 @@ services:
     environment:
       DATABASE_PATH: /app/data/voice_notes.db
     volumes:
+      # Cały katalog, nie pojedyncze pliki: montowanie plików rozjeżdża się
+      # przy nadpisaniu (kontener trzyma stary i-node) i widzi nieaktualny kod.
+      - .:/app
+      # Bardziej szczegółowy mount wygrywa — baza testowa przykrywa data/.
       - ./data/test:/app/data
-      # Kod montowany z dysku, nie brany z obrazu — poprawka jest widoczna
-      # od razu, bez przebudowy przy każdej iteracji testów.
-      - ./bot.py:/app/bot.py:ro
-      - ./ai_processor.py:/app/ai_processor.py:ro
-      - ./database.py:/app/database.py:ro
-      - ./config.py:/app/config.py:ro
-      - ./cost_calculator.py:/app/cost_calculator.py:ro
-      - ./probe_diarize.py:/app/probe_diarize.py:ro
-    command: ["sleep", "infinity"]
+    # Pełny bot — reaguje na nagrania w Telegramie. Notatki lądują w bazie
+    # testowej (data/test), więc nie mieszają się z produkcyjnymi.
+    command: ["python", "bot.py"]
+    restart: unless-stopped

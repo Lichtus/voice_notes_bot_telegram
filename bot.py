@@ -131,7 +131,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/szukaj [tekst]` - szukaj tekstowo\n"
         "• `/zadania` - zadania do zrobienia\n"
         "• `/wykonane [id]` - oznacz zadanie\n"
-        "• `/stats` - statystyki\n\n"
+        "• `/stats` - statystyki\n"
+        "• `/anuluj` - odrzuć notatkę w trakcie tworzenia\n\n"
         "⚠️ *Limit:* max 20 minut nagrania",
         parse_mode='Markdown'
     )
@@ -163,7 +164,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(audio_obj.file_id)
         audio_bytes = await file.download_as_bytearray()
 
-        # Transkrypcja dla wykrycia keywordu (szybka, bez embeddingu)
+        # Pełna transkrypcja całego pliku. Służy najpierw do wykrycia słowa
+        # "szukaj", ale jest tym samym wynikiem, którego potrzebuje finalizacja
+        # — zachowujemy ją niżej, żeby nie płacić za to samo audio dwa razy.
         await update.message.reply_text("🔄 Transkrybuję audio...")
         _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
         transcription = _tr["tekst"]
@@ -212,14 +215,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_notes[user_id]["audio_parts"].append({
             "bytes": bytes(audio_bytes),
             "filename": filename,
-            "file_id": audio_obj.file_id
+            "file_id": audio_obj.file_id,
+            "transkrypcja": _tr,   # już opłacona — finalizacja jej użyje
         })
 
         # Zapytaj czy dodać więcej
         part_count = len(pending_notes[user_id]["audio_parts"])
         keyboard = [
             [InlineKeyboardButton("✅ To wszystko - przetwórz", callback_data="finalize_audio")],
-            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")]
+            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")],
+            [InlineKeyboardButton("🗑️ Odrzuć całość", callback_data="cancel")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -377,6 +382,42 @@ def tekst_transkrypcji(notatka):
     return dialog_z_segmentow(segmenty) or notatka.transkrypcja
 
 
+def odrzuc_biezaca_notatke(user_id):
+    """
+    Kasuje notatkę będącą w trakcie tworzenia i opisuje, co przepadło.
+
+    Nic nie znika z bazy — notatka trafia tam dopiero na końcu przepływu,
+    więc odrzucenie na dowolnym wcześniejszym etapie jest bezpieczne.
+    """
+    note = pending_notes.pop(user_id, None)
+    editing_note_id.pop(user_id, None)
+
+    if not note:
+        return "🤷 Nie ma nic w trakcie tworzenia — nie było czego odrzucać."
+
+    szczegoly = []
+    if note.get("audio_parts"):
+        szczegoly.append(f"nagrania: {len(note['audio_parts'])}")
+    if note.get("photos"):
+        szczegoly.append(f"zdjęcia: {len(note['photos'])}")
+    if note.get("temat"):
+        # Znaki składni Markdown w temacie wysypałyby wysyłkę wiadomości
+        czysty = "".join(c for c in note["temat"] if c not in "_*[]`")
+        szczegoly.append(f"temat: {czysty[:40]}")
+
+    opis = "\n".join(f"• {s}" for s in szczegoly) if szczegoly else "• brak danych"
+    return f"🗑️ *Odrzucono notatkę*\n\n{opis}\n\nNic nie zostało zapisane w bazie."
+
+
+@check_user_allowed
+async def anuluj(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Awaryjne wyjście z dowolnego etapu — działa też, gdy klawiatura przepadła."""
+    await update.message.reply_text(
+        odrzuc_biezaca_notatke(update.effective_user.id), parse_mode='Markdown'
+    )
+    return ConversationHandler.END
+
+
 async def show_note_preview(update: Update, user_id: int):
     """Pokazuje podgląd notatki do zatwierdzenia"""
     note = pending_notes.get(user_id)
@@ -443,9 +484,10 @@ async def ask_for_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Gdy skończysz, kliknij przycisk poniżej.\n\n"
         "💡 Możesz wysłać wiele zdjęć po kolei.",
         parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Zakończ dodawanie zdjęć", callback_data="finish_photos")
-        ]])
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Zakończ dodawanie zdjęć", callback_data="finish_photos")],
+            [InlineKeyboardButton("🗑️ Odrzuć całość", callback_data="cancel")]
+        ])
     )
 
     return WAITING_PHOTOS
@@ -498,7 +540,8 @@ async def ask_for_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("📄 Tak, generuj PDF", callback_data="generate_pdf"),
             InlineKeyboardButton("⏭️ Nie, zapisz bez PDF", callback_data="save_without_pdf")
-        ]
+        ],
+        [InlineKeyboardButton("🗑️ Odrzuć całość", callback_data="cancel")]
     ]
 
     await query.edit_message_text(
@@ -525,7 +568,8 @@ async def ask_about_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     keyboard = [
         [InlineKeyboardButton("✅ Tak, analizuj", callback_data="analysis_yes")],
-        [InlineKeyboardButton("❌ Nie, zapisz normalnie", callback_data="analysis_no")]
+        [InlineKeyboardButton("❌ Nie, zapisz normalnie", callback_data="analysis_no")],
+        [InlineKeyboardButton("🗑️ Odrzuć całość", callback_data="cancel")]
     ]
 
     # Spróbuj edytować wiadomość
@@ -765,8 +809,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             wszystkie_segmenty = []
 
             for i, part in enumerate(audio_parts, 1):
-                logger.info(f"Transkrybuję część {i}/{part_count}")
-                tr = ai.transcribe_audio(part["bytes"], filename=part["filename"])
+                tr = part.get("transkrypcja")
+                if tr:
+                    logger.info(f"Część {i}/{part_count} — używam transkrypcji z wykrywania słowa kluczowego")
+                else:
+                    logger.info(f"Transkrybuję część {i}/{part_count}")
+                    tr = ai.transcribe_audio(part["bytes"], filename=part["filename"])
                 transcriptions.append(f"[Część {i}]\n{tr['tekst']}")
                 total_duration += tr["czas_s"]
                 # Etykiety mówców są nadawane niezależnie w każdym wywołaniu API,
@@ -1171,9 +1219,9 @@ Wygenerowano przez Voice Notes Bot
         return EDITING_TEMAT
 
     elif action == "cancel":
-        if user_id in pending_notes:
-            del pending_notes[user_id]
-        await query.edit_message_text("❌ Anulowano")
+        await query.edit_message_text(
+            odrzuc_biezaca_notatke(user_id), parse_mode='Markdown'
+        )
         return ConversationHandler.END
 
     elif action.startswith("transcript_"):
@@ -1337,14 +1385,16 @@ async def handle_additional_voice(update: Update, context: ContextTypes.DEFAULT_
         pending_notes[user_id]["audio_parts"].append({
             "bytes": bytes(audio_bytes),
             "filename": filename,
-            "file_id": audio_obj.file_id
+            "file_id": audio_obj.file_id,
+            # kolejne części nie były transkrybowane — zrobi to finalizacja
         })
 
         # Zapytaj czy dodać więcej
         part_count = len(pending_notes[user_id]["audio_parts"])
         keyboard = [
             [InlineKeyboardButton("✅ To wszystko - przetwórz", callback_data="finalize_audio")],
-            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")]
+            [InlineKeyboardButton("➕ Dodaj więcej nagrań", callback_data="more_audio")],
+            [InlineKeyboardButton("🗑️ Odrzuć całość", callback_data="cancel")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -2076,7 +2126,7 @@ def main():
             ],
             ASKING_PDF: [CallbackQueryHandler(button_handler)],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[CommandHandler("start", start), CommandHandler("anuluj", anuluj)],
     )
 
     # Conversation handler dla edycji notatek nagraniem
@@ -2085,7 +2135,7 @@ def main():
         states={
             EDITING_NOTE: [MessageHandler(filters.VOICE | filters.AUDIO, edit_note_audio)],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[CommandHandler("start", start), CommandHandler("anuluj", anuluj)],
     )
 
     # Dodanie handlerów
@@ -2099,6 +2149,7 @@ def main():
     application.add_handler(CommandHandler("zadania", zadania))
     application.add_handler(CommandHandler("wykonane", wykonane))
     application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("anuluj", anuluj))
 
     # Handler dla przycisków (poza conversation handler)
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^transcript_"))
