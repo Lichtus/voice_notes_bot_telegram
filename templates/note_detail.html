@@ -177,10 +177,40 @@
             </section>
             {% endif %}
 
+            <!-- Rozmówcy -->
+            {% if rozmowa %}
+            <section class="section">
+                <h2>🗣️ Rozmówcy</h2>
+                <div class="speakers-summary">
+                    {% for m in rozmowa.mowcy %}
+                    <span class="speaker-chip speaker-{{ m.kolor }}">
+                        {{ m.etykieta }} <span class="speaker-time">{{ m.czas }}</span>
+                    </span>
+                    {% endfor %}
+                </div>
+
+                <h2 style="margin-top:24px;">💬 Zapis rozmowy</h2>
+                <div class="dialogue">
+                    {% set ns = namespace(czesc=None) %}
+                    {% for s in rozmowa.segmenty %}
+                        {% if rozmowa.wiele_czesci and s.czesc != ns.czesc %}
+                            {% set ns.czesc = s.czesc %}
+                            <div class="dialogue-part">Część {{ s.czesc }}</div>
+                        {% endif %}
+                        <div class="dialogue-line">
+                            <span class="dialogue-speaker speaker-{{ s.kolor }}">Rozmówca {{ s.mowca }}</span>
+                            <span class="dialogue-time">{{ '%d:%02d'|format(s.start|int // 60, s.start|int % 60) }}</span>
+                            <span class="dialogue-text">{{ s.tekst }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
             <!-- Transkrypcja -->
             {% if note.transkrypcja %}
             <section class="section">
-                <h2>🎤 Transkrypcja audio</h2>
+                <h2>🎤 {{ 'Pełna transkrypcja' if rozmowa else 'Transkrypcja audio' }}</h2>
                 <div class="transcription">
                     {{ note.transkrypcja }}
                 </div>

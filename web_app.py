@@ -508,7 +508,42 @@ def note_detail(note_id):
         'auto_category_confidence': note.auto_category_confidence
     }
 
-    return render_template('note_detail.html', note=note_data, analiza=analiza, user=session)
+    # Podział na rozmówców — pokazujemy tylko, gdy diaryzacja rozpoznała
+    # więcej niż jedną osobę. Przy monologu byłby to zbędny szum.
+    rozmowa = None
+    if note.transkrypcja_segmenty:
+        try:
+            segmenty = json.loads(note.transkrypcja_segmenty)
+        except (json.JSONDecodeError, TypeError):
+            segmenty = []
+        if len({(s.get('czesc'), s['mowca']) for s in segmenty}) > 1:
+            czasy = {}
+            for s in segmenty:
+                klucz = (s.get('czesc'), s['mowca'])
+                czasy[klucz] = czasy.get(klucz, 0) + (s['end'] - s['start'])
+            wiele_czesci = len({k[0] for k in czasy if k[0]}) > 1
+
+            # Stały kolor na mówcę, liczony raz tutaj — w szablonie wychodziło
+            # z tego nieczytelne wyrażenie.
+            kolejnosc = sorted(czasy.items(), key=lambda x: -x[1])
+            kolory = {klucz: i % 4 for i, (klucz, _) in enumerate(kolejnosc)}
+
+            rozmowa = {
+                'segmenty': [
+                    {**s, 'kolor': kolory.get((s.get('czesc'), s['mowca']), 0)}
+                    for s in segmenty
+                ],
+                'wiele_czesci': wiele_czesci,
+                'mowcy': [
+                    {'etykieta': f"Rozmówca {mowca}" + (f" (cz. {nr})" if wiele_czesci and nr else ''),
+                     'czas': f"{int(sek)//60}:{int(sek) % 60:02d}",
+                     'kolor': kolory[(nr, mowca)]}
+                    for (nr, mowca), sek in kolejnosc
+                ],
+            }
+
+    return render_template('note_detail.html', note=note_data, analiza=analiza,
+                           rozmowa=rozmowa, user=session)
 
 
 @app.route('/notes/<int:note_id>/delete', methods=['POST'])
