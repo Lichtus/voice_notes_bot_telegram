@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Przetwarzanie - Voice Notes Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% if zadanie.status not in ('gotowe', 'blad') %}
+    <meta http-equiv="refresh" content="4">
+    {% endif %}
+</head>
+<body>
+    <div class="container">
+        <div class="user-header">
+            <h1>🎧 Przetwarzanie</h1>
+            <a href="{{ url_for('notes_list') }}" class="btn">← Notatki</a>
+        </div>
+
+        <div class="card" style="padding:24px;">
+            <p><strong>{{ zadanie.nazwa }}</strong>
+               &nbsp;·&nbsp; {{ (zadanie.rozmiar / 1024 / 1024)|round(1) }} MB</p>
+
+            {% if zadanie.status == 'gotowe' %}
+                <p style="font-size:18px;margin-top:16px;">✅ Gotowe — <strong>{{ zadanie.temat }}</strong></p>
+                {% if zadanie.mowcy and zadanie.mowcy|length > 1 %}
+                <p>🗣️ Rozpoznani rozmówcy: {{ zadanie.mowcy|join(', ') }}</p>
+                {% endif %}
+                <a href="{{ url_for('note_detail', note_id=zadanie.notatka_id) }}"
+                   class="btn btn-primary" style="margin-top:12px;">Otwórz notatkę</a>
+
+            {% elif zadanie.status == 'blad' %}
+                <p style="font-size:18px;margin-top:16px;">❌ Nie udało się przetworzyć</p>
+                <p style="opacity:.8;">{{ zadanie.blad }}</p>
+                <a href="{{ url_for('upload') }}" class="btn" style="margin-top:12px;">Spróbuj ponownie</a>
+
+            {% else %}
+                <p style="font-size:18px;margin-top:16px;">
+                    {% if zadanie.status == 'kolejka' %}⏳ W kolejce…
+                    {% elif zadanie.status == 'transkrypcja' %}🎤 Transkrybuję i rozpoznaję rozmówców…
+                    {% else %}💾 Zapisuję…{% endif %}
+                </p>
+                <p style="opacity:.75;font-size:14px;">
+                    Strona odświeża się sama. Godzinne nagranie to kilka minut —
+                    możesz zamknąć kartę i wrócić do notatek później.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

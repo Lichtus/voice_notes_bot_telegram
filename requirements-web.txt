@@ -3,3 +3,4 @@ python-dotenv==1.0.1
 sqlalchemy==2.0.25
 requests==2.31.0
 numpy==1.26.3
+openai==2.54.0

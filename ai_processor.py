@@ -333,7 +333,7 @@ class AIProcessor:
             logger.error(f"Błąd podczas generowania embedding: {e}")
             raise
 
-    def process_voice_note(self, audio_bytes, filename="voice.ogg"):
+    def process_voice_note(self, audio_bytes, filename="voice.ogg", dostawca=None):
         """
         Pełne przetwarzanie notatki głosowej: transkrypcja + ekstrakcja struktury + koszty
 
@@ -371,7 +371,7 @@ class AIProcessor:
             from cost_calculator import CostCalculator
 
             # Krok 1: Transkrypcja (z rozpoznaniem mówców)
-            tr = self.transcribe_audio(audio_bytes, filename)
+            tr = self.transcribe_audio(audio_bytes, filename, dostawca=dostawca)
             transcription = tr["tekst"]
             audio_duration = tr["czas_s"]
 

@@ -10,6 +10,8 @@ from datetime import datetime
 import json
 import hashlib
 import hmac
+import threading
+import uuid
 from functools import wraps
 
 from flask import Flask, render_template, request, Response, session, redirect, url_for, jsonify
@@ -924,6 +926,130 @@ def get_photo(note_id, photo_index):
     except Exception as e:
         logger.error(f"Błąd pobierania zdjęcia: {e}")
         return "Błąd serwera", 500
+
+
+# ============================================
+# WGRYWANIE PLIKÓW AUDIO
+# ============================================
+
+# Formaty przyjmowane zarówno przez AssemblyAI, jak i przez Whisper.
+DOZWOLONE_FORMATY = {'.mp3', '.mp4', '.m4a', '.wav', '.ogg', '.oga',
+                     '.webm', '.flac', '.mpeg', '.mpga'}
+
+# Limit nie wynika z Telegrama (ten kończy się na 20 MB przy pobieraniu przez
+# bota) — tutaj plik idzie prosto z przeglądarki, więc godzinne spotkanie
+# przechodzi bez przekodowywania.
+MAX_ROZMIAR_MB = 100
+app.config['MAX_CONTENT_LENGTH'] = MAX_ROZMIAR_MB * 1024 * 1024
+
+# Stan zadań w pamięci procesu — jak kody logowania, ginie przy restarcie.
+zadania_uploadu = {}
+
+
+def przetworz_wgrane(job_id, audio_bytes, nazwa, user_id, dostawca):
+    """
+    Pełny pipeline dla wgranego pliku, w osobnym wątku.
+
+    Transkrypcja godzinnego nagrania trwa minuty — przeglądarka tyle nie
+    poczeka, a zajęty wątek blokowałby całą aplikację.
+    """
+    zadanie = zadania_uploadu[job_id]
+    try:
+        # Własna instancja bazy: sesja SQLAlchemy nie jest bezpieczna wątkowo,
+        # a ta w module obsługuje żądania HTTP.
+        from database import Database as _Database
+        from ai_processor import AIProcessor
+
+        zadanie['status'] = 'transkrypcja'
+        wynik = AIProcessor().process_voice_note(audio_bytes, filename=nazwa,
+                                                 dostawca=dostawca)
+
+        zadanie['status'] = 'zapis'
+        wlasna_db = _Database(os.getenv('DATABASE_PATH', 'voice_notes.db'))
+        notatka = wlasna_db.add_notatka(
+            telegram_user_id=user_id,
+            temat=wynik['temat'],
+            opis=wynik['opis'],
+            transkrypcja=wynik['transkrypcja'],
+            segmenty=wynik.get('segmenty'),
+            audio_file_id=None,          # plik nie pochodzi z Telegrama
+            zadania_list=wynik['zadania'],
+            embedding_vector=wynik.get('embedding'),
+            cost_data=wynik.get('cost_data'),
+            kategoria=wynik.get('kategoria', 'Inne'),
+        )
+        # Odczyt PRZED zamknięciem sesji — potem obiekt jest od niej odpięty
+        # i każde sięgnięcie po atrybut kończy się DetachedInstanceError.
+        notatka_id = notatka.id
+        wlasna_db.close()
+
+        zadanie.update(status='gotowe', notatka_id=notatka_id,
+                       temat=wynik['temat'],
+                       mowcy=sorted({s['mowca'] for s in (wynik.get('segmenty') or [])}))
+        logger.info(f"Upload {job_id}: zapisano notatkę #{notatka_id}")
+
+    except Exception as e:
+        logger.error(f"Upload {job_id} nie powiódł się: {e}")
+        zadanie.update(status='blad', blad=str(e)[:200])
+
+
+@app.route('/upload', methods=['GET', 'POST'])
+@login_required
+def upload():
+    """Wgrywanie pliku audio z pominięciem Telegrama."""
+    if request.method == 'GET':
+        return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                               formaty=sorted(DOZWOLONE_FORMATY))
+
+    plik = request.files.get('audio')
+    if not plik or not plik.filename:
+        return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                               formaty=sorted(DOZWOLONE_FORMATY),
+                               blad="Nie wybrano pliku")
+
+    rozszerzenie = os.path.splitext(plik.filename)[1].lower()
+    if rozszerzenie not in DOZWOLONE_FORMATY:
+        return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                               formaty=sorted(DOZWOLONE_FORMATY),
+                               blad=f"Format {rozszerzenie or '(brak)'} nie jest obsługiwany")
+
+    audio_bytes = plik.read()
+    if not audio_bytes:
+        return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                               formaty=sorted(DOZWOLONE_FORMATY),
+                               blad="Plik jest pusty")
+
+    user_id = biezacy_user_id()
+    dostawca = db.get_ustawienie(user_id, 'dostawca_transkrypcji',
+                                 os.getenv('TRANSCRIPTION_PROVIDER', 'assemblyai'))
+
+    job_id = uuid.uuid4().hex[:12]
+    zadania_uploadu[job_id] = {'status': 'kolejka', 'nazwa': plik.filename,
+                               'rozmiar': len(audio_bytes), 'user_id': user_id}
+    threading.Thread(target=przetworz_wgrane, daemon=True,
+                     args=(job_id, audio_bytes, plik.filename, user_id, dostawca)).start()
+
+    logger.info(f"Upload {job_id}: {plik.filename} ({len(audio_bytes)//1024} KB), "
+                f"dostawca {dostawca}")
+    return redirect(url_for('upload_status', job_id=job_id))
+
+
+@app.route('/upload/status/<job_id>')
+@login_required
+def upload_status(job_id):
+    zadanie = zadania_uploadu.get(job_id)
+    if not zadanie or zadanie.get('user_id') != biezacy_user_id():
+        return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                               formaty=sorted(DOZWOLONE_FORMATY),
+                               blad="Nie znaleziono takiego zadania"), 404
+    return render_template('upload_status.html', zadanie=zadanie, job_id=job_id)
+
+
+@app.errorhandler(413)
+def plik_za_duzy(_):
+    return render_template('upload.html', max_mb=MAX_ROZMIAR_MB,
+                           formaty=sorted(DOZWOLONE_FORMATY),
+                           blad=f"Plik przekracza {MAX_ROZMIAR_MB} MB"), 413
 
 
 @app.route('/statistics')
