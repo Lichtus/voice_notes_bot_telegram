@@ -145,6 +145,23 @@ def verify_login_code(user_id, code):
     return user_data
 
 
+@app.teardown_request
+def zakoncz_transakcje(_):
+    """
+    Domyka transakcję odczytu po każdym żądaniu.
+
+    Moduł trzyma jedną długowieczną sesję SQLAlchemy. Pierwsze zapytanie
+    otwiera transakcję, która żyje aż do commitu albo zamknięcia — a w SQLite
+    oznacza to zamrożony obraz bazy. Bez tego wiersze dopisane przez inne
+    połączenie (bota albo wątek przetwarzający wgrany plik) są niewidoczne
+    do restartu procesu.
+    """
+    try:
+        db.session.close()
+    except Exception as e:
+        logger.warning(f"Nie udało się domknąć sesji: {e}")
+
+
 # ============================================
 # AUTHENTICATION ROUTES
 # ============================================
