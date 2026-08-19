@@ -2,16 +2,22 @@
 Moduł przetwarzania audio i ekstrakcji struktury przez OpenAI
 """
 import json
+import requests
+import time
 import logging
 from io import BytesIO
 from openai import OpenAI
-from config import (OPENAI_API_KEY, TRANSCRIPTION_MODEL, WHISPER_MODEL, GPT_MODEL,
-                    EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT)
+from config import (OPENAI_API_KEY, TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
+                    WHISPER_MODEL, GPT_MODEL, ASSEMBLYAI_API_KEY,
+                    ASSEMBLYAI_LANGUAGE, EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT)
 
 logger = logging.getLogger(__name__)
 
 # Model dla embeddingów
 EMBEDDING_MODEL = "text-embedding-3-small"
+
+ASSEMBLYAI_API = "https://api.assemblyai.com/v2"
+ASSEMBLYAI_TIMEOUT_S = 600
 
 
 class AIProcessor:
@@ -39,10 +45,83 @@ class AIProcessor:
                 "tokeny_output": int,
             }
         """
+        logger.info(
+            f"Transkrypcja: {len(audio_bytes)} bajtów, dostawca {TRANSCRIPTION_PROVIDER}"
+        )
+
+        if TRANSCRIPTION_PROVIDER == "assemblyai":
+            try:
+                return self._transkrypcja_assemblyai(audio_bytes)
+            except Exception as e:
+                # Awaria zewnętrznego dostawcy nie może kosztować użytkownika notatki
+                logger.warning(f"AssemblyAI zawiódł ({e}); przechodzę na OpenAI")
+
+        return self._transkrypcja_openai(audio_bytes, filename)
+
+    def _transkrypcja_assemblyai(self, audio_bytes):
+        """
+        Diaryzacja z globalnym grupowaniem mówców — etykiety są spójne przez
+        całe nagranie i nie wymagają żadnych próbek głosu.
+        """
+        if not ASSEMBLYAI_API_KEY:
+            raise RuntimeError("brak ASSEMBLYAI_API_KEY")
+
+        naglowki = {"authorization": ASSEMBLYAI_API_KEY}
+
+        wgrane = requests.post(f"{ASSEMBLYAI_API}/upload", headers=naglowki,
+                               data=audio_bytes, timeout=180)
+        wgrane.raise_for_status()
+
+        zlecenie = requests.post(f"{ASSEMBLYAI_API}/transcript", headers=naglowki, timeout=30,
+                                 json={"audio_url": wgrane.json()["upload_url"],
+                                       "speaker_labels": True,
+                                       "language_code": ASSEMBLYAI_LANGUAGE})
+        zlecenie.raise_for_status()
+        tid = zlecenie.json()["id"]
+
+        koniec = time.time() + ASSEMBLYAI_TIMEOUT_S
+        while True:
+            if time.time() > koniec:
+                raise TimeoutError(f"brak wyniku po {ASSEMBLYAI_TIMEOUT_S}s")
+            stan = requests.get(f"{ASSEMBLYAI_API}/transcript/{tid}",
+                                headers=naglowki, timeout=30).json()
+            if stan["status"] == "completed":
+                break
+            if stan["status"] == "error":
+                raise RuntimeError(stan.get("error", "nieznany błąd"))
+            time.sleep(3)
+
+        # Gdy diaryzacja nie zadziała dla języka, utterances bywa puste —
+        # wtedy zostaje sam tekst, bez podziału na mówców.
+        segmenty = [
+            {
+                "mowca": u["speaker"],
+                "start": round(u["start"] / 1000, 2),
+                "end": round(u["end"] / 1000, 2),
+                "tekst": u["text"].strip(),
+            }
+            for u in (stan.get("utterances") or [])
+        ]
+        mowcy = sorted({s["mowca"] for s in segmenty})
+        czas = int(round(stan.get("audio_duration") or 0)) or 1
+
+        logger.info(f"AssemblyAI: {czas}s, {len(segmenty)} wypowiedzi, "
+                    f"mówcy: {mowcy or 'brak'}, pewność: {stan.get('confidence')}")
+
+        return {
+            "tekst": stan.get("text") or "",
+            "czas_s": czas,
+            "segmenty": segmenty,
+            "mowcy": mowcy,
+            "tokeny_input": 0,      # rozliczenie za czas, nie za tokeny
+            "tokeny_output": 0,
+            "dostawca": "assemblyai",
+        }
+
+    def _transkrypcja_openai(self, audio_bytes, filename):
+        """Diaryzacja OpenAI — grupuje mówców w obrębie fragmentu."""
         audio_file = BytesIO(audio_bytes)
         audio_file.name = filename
-
-        logger.info(f"Rozpoczynam transkrypcję audio ({len(audio_bytes)} bajtów)")
 
         try:
             odp = self.client.audio.transcriptions.create(
@@ -88,6 +167,7 @@ class AIProcessor:
             "mowcy": mowcy,
             "tokeny_input": tok_in,
             "tokeny_output": tok_out,
+            "dostawca": "openai",
         }
 
     def _transkrypcja_awaryjna(self, audio_bytes, filename):
@@ -104,6 +184,7 @@ class AIProcessor:
             "mowcy": [],
             "tokeny_input": 0,
             "tokeny_output": 0,
+            "dostawca": "whisper",
         }
 
     def extract_structure(self, transcription):
@@ -288,7 +369,7 @@ class AIProcessor:
 
             # Krok 4: Obliczanie kosztów
             cost_whisper = CostCalculator.calculate_transcription_cost(
-                audio_duration, TRANSCRIPTION_MODEL)
+                audio_duration, tr.get("dostawca") or TRANSCRIPTION_MODEL)
             cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
                 gpt_usage['input_tokens'],
                 gpt_usage['output_tokens']

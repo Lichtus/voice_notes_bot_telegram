@@ -807,6 +807,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             wszystkie_segmenty = []
+            dostawca_transkrypcji = None
 
             for i, part in enumerate(audio_parts, 1):
                 tr = part.get("transkrypcja")
@@ -815,6 +816,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     logger.info(f"Transkrybuję część {i}/{part_count}")
                     tr = ai.transcribe_audio(part["bytes"], filename=part["filename"])
+                dostawca_transkrypcji = tr.get("dostawca")
                 transcriptions.append(f"[Część {i}]\n{tr['tekst']}")
                 total_duration += tr["czas_s"]
                 # Etykiety mówców są nadawane niezależnie w każdym wywołaniu API,
@@ -844,7 +846,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from cost_calculator import CostCalculator
 
             cost_whisper = CostCalculator.calculate_transcription_cost(
-                total_duration, TRANSCRIPTION_MODEL)
+                total_duration, dostawca_transkrypcji or TRANSCRIPTION_MODEL)
             cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
                 gpt_usage['input_tokens'],
                 gpt_usage['output_tokens']
@@ -1478,7 +1480,7 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from cost_calculator import CostCalculator
 
         cost_whisper = CostCalculator.calculate_transcription_cost(
-            audio_duration, TRANSCRIPTION_MODEL)
+            audio_duration, _tr.get("dostawca") or TRANSCRIPTION_MODEL)
         cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
             gpt_usage['input_tokens'],
             gpt_usage['output_tokens']
