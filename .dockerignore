@@ -21,8 +21,6 @@ data/
 .idea/
 .vscode/
 
-# Legacy / dokumentacja — niepotrzebne w obrazie
-.app_old.py
-skrypt.py
-requirements.txt
+# Materiał archiwalny i dokumentacja — niepotrzebne w obrazie
+archive/
 *.md

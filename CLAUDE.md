@@ -22,16 +22,16 @@ docker compose down                   # stop
 Bare metal (venv) still works and is useful for one-off scripts:
 
 ```bash
-pip install -r requirements-bot.txt && python bot.py    # or ./start_bot.sh
-pip install -r requirements-web.txt && python web_app.py  # or ./start_web.sh
+pip install -r requirements-bot.txt && python bot.py
+pip install -r requirements-web.txt && python web_app.py
 python init_db.py        # create tables from scratch
 python view_database.py  # CLI browser
 ```
 
 **Only one bot process may poll Telegram at a time** — a second one dies with
-`telegram.error.Conflict: terminated by other getUpdates request`. The machine also
-ships a `voice-notes-bot.service` systemd unit pointing at the venv; it must stay
-stopped/disabled while the container runs.
+`telegram.error.Conflict: terminated by other getUpdates request`. A
+`voice-notes-bot.service` systemd unit may still be installed on the host from the
+pre-Docker setup; it must stay stopped and disabled while the container runs.
 
 The two setups use **different database files**: systemd/venv uses `./voice_notes.db`,
 Docker uses `./data/voice_notes.db` (bind-mounted to `/app/data`). Switching direction
@@ -39,7 +39,10 @@ means copying the file across, after a `PRAGMA wal_checkpoint(TRUNCATE)`.
 
 There is no test suite, linter, or formatter configured. Verify changes by running the bot/web app.
 
-`requirements.txt` (Streamlit/Qdrant) is dead legacy from the pre-Telegram version — see `.app_old.py`. Only `requirements-bot.txt` and `requirements-web.txt` are live. `skrypt.py` is a one-off local venv repair script, not part of the app.
+`requirements-bot.txt` and `requirements-web.txt` are the only dependency files. Legacy
+material — the pre-Telegram Streamlit app, historical migration scripts, venv launchers and
+the old deployment guides — was moved out of the repo into a gitignored `archive/` directory
+on 2026-08-19; recover anything from git history before that date if needed.
 
 ## Architecture
 
@@ -100,7 +103,12 @@ Conventions that matter:
 
 ### Migrations
 
-No Alembic. `Base.metadata.create_all()` creates missing tables but never adds columns to existing ones, so each schema change gets a hand-written `migrate_*.py` run once (see `migrate_add_deep_analysis.py` for the current pattern: `PRAGMA table_info` → conditional `ALTER TABLE ADD COLUMN`). Adding a column means: update the model, write a migration, and update `add_notatka()`/`update_notatka()` plus the display functions (`show_note_preview()`, `send_full_note()`, `send_full_note_from_callback()`, `generate_pdf()`, and the web templates).
+No Alembic. `Base.metadata.create_all()` runs on every startup and creates missing tables
+with the **full current schema** — a fresh database needs no migration at all. What it never
+does is add a column to a table that already exists, so upgrading an older database means a
+hand-written `PRAGMA table_info` → conditional `ALTER TABLE ADD COLUMN` script. The historical
+ones live in `archive/`. Adding a column means: update the model, write such a script if any
+live database predates it, and update `add_notatka()`/`update_notatka()` plus the display functions (`show_note_preview()`, `send_full_note()`, `send_full_note_from_callback()`, `generate_pdf()`, and the web templates).
 
 ### PDF generation
 
@@ -146,6 +154,9 @@ WEB_APP_URL=http://localhost:5000 # where the bot POSTs login codes
 
 Model ids live in `config.py` (`WHISPER_MODEL`, `GPT_MODEL`) and `ai_processor.py` (`EMBEDDING_MODEL`). Prices are hardcoded constants in `cost_calculator.py`, current as of December 2025 — update them together with any model change or historical cost figures become inconsistent.
 
-## Deployment docs
+## Repository scope
 
-Setup guides exist for the various hosting targets: `LINUX_MINT_SETUP.md` (systemd via `voice-notes-bot.service`), `GOOGLE_CLOUD_SETUP.md` / `GOOGLE_CLOUD_WEB_SETUP.md`, `SUPABASE_SETUP.md`, `CLOUD_STORAGE_SETUP.md` (with `backup_to_cloud.sh` / `restore_from_cloud.sh`), and `WEB_APP_README.md`.
+The repo deliberately holds only what runs the application. Deployment guides (Google Cloud,
+Supabase, Linux Mint, cloud backups), venv launcher scripts, the systemd unit and superseded
+migration scripts were moved to a gitignored `archive/` directory — they are in git history
+up to 2026-08-19 if ever needed.

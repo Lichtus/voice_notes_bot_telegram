@@ -64,8 +64,8 @@ Bot i aplikacja webowa mają rozdzielne zależności i uruchamia się je jako dw
 ```bash
 python -m venv venv && source venv/bin/activate
 
-pip install -r requirements-bot.txt && python bot.py     # albo ./start_bot.sh
-pip install -r requirements-web.txt && python web_app.py # albo ./start_web.sh
+pip install -r requirements-bot.txt && python bot.py
+pip install -r requirements-web.txt && python web_app.py
 ```
 
 Generowanie PDF wymaga bibliotek systemowych WeasyPrint (Pango, Cairo, gdk-pixbuf).
@@ -173,8 +173,10 @@ Dwie decyzje projektowe, które łatwo przeoczyć:
 - **Koszty jako TEXT.** Kwoty rzędu ułamków centa gubiłyby precyzję w kolumnach `REAL`,
   dlatego trzymane są jako tekst.
 
-Zmiany schematu wprowadzają skrypty `migrate_*.py`, uruchamiane jednorazowo —
-`Base.metadata.create_all()` tworzy brakujące tabele, ale nie dodaje kolumn do istniejących.
+Świeża baza powstaje sama przy pierwszym starcie — `Base.metadata.create_all()` zakłada
+tabele od razu z pełnym schematem. Uwaga: nie dodaje natomiast kolumn do tabel, które już
+istnieją, więc podniesienie bazy założonej na starszej wersji modelu wymaga ręcznego
+`ALTER TABLE`. Historyczne skrypty migracyjne leżą poza repozytorium.
 
 ## 💰 Koszty OpenAI
 
@@ -202,16 +204,15 @@ voice_notes_bot_telegram/
 ├── config.py               # Konfiguracja i prompty GPT
 ├── templates/              # Szablony HTML aplikacji webowej
 ├── static/                 # Style
-├── migrate_*.py            # Migracje schematu
 ├── Dockerfile              # Obraz wielostopniowy: targety bot i web
 ├── docker-compose.yml      # Definicja obu usług
 ├── requirements-bot.txt    # Zależności bota
 ├── requirements-web.txt    # Zależności aplikacji webowej
+├── migrate_to_supabase.py  # Przeniesienie danych z SQLite do PostgreSQL
+├── view_database.py        # Przeglądarka bazy z linii poleceń
 └── data/                   # Baza SQLite (wolumen Dockera)
 ```
 
-Instrukcje wdrożeniowe znajdują się w osobnych plikach: `GOOGLE_CLOUD_SETUP.md`,
-`SUPABASE_SETUP.md`, `LINUX_MINT_SETUP.md`, `CLOUD_STORAGE_SETUP.md`.
 Opis architektury dla asystentów AI: `CLAUDE.md`.
 
 ## 🔒 Bezpieczeństwo
