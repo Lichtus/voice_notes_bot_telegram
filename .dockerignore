@@ -1,0 +1,28 @@
+# Środowisko lokalne — nigdy nie trafia do obrazu
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Sekrety — podawane przez env_file w runtime, nie wbudowane w obraz
+.env
+
+# Baza — montowana jako wolumen ./data
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+data/
+
+# Repo i narzędzia
+.git/
+.gitignore
+.claude/
+.idea/
+.vscode/
+
+# Legacy / dokumentacja — niepotrzebne w obrazie
+.app_old.py
+skrypt.py
+requirements.txt
+*.md

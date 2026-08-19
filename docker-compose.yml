@@ -1,0 +1,40 @@
+# Lokalne uruchomienie: docker compose up -d --build
+#
+# Oba serwisy współdzielą jeden plik SQLite przez bind mount ./data.
+# Bot dodatkowo wysyła kody logowania HTTP-em na adres web:5000
+# (wewnętrzna sieć compose) — dlatego WEB_APP_URL jest tu nadpisywane.
+
+services:
+  bot:
+    build:
+      context: .
+      target: bot
+    image: voice-notes-bot:local
+    container_name: voice-notes-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # nadpisuje wartości z .env (te są dla uruchomienia poza Dockerem)
+      DATABASE_PATH: /app/data/voice_notes.db
+      WEB_APP_URL: http://web:5000
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - web
+
+  web:
+    build:
+      context: .
+      target: web
+    image: voice-notes-web:local
+    container_name: voice-notes-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/voice_notes.db
+    ports:
+      # tylko localhost — /notes nie ma @login_required, więc nie wystawiamy
+      # aplikacji na całą sieć LAN. Zmień na "5000:5000" jeśli chcesz dostęp z LAN.
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./data:/app/data
