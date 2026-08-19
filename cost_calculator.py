@@ -16,6 +16,14 @@ class CostCalculator:
     # Whisper - transkrypcja audio
     WHISPER_PER_MINUTE_USD = 0.006  # $0.006 za minutę
 
+    # ⚠️ DO POTWIERDZENIA NA CENNIKU OPENAI ⚠️
+    # gpt-4o-transcribe-diarize rozlicza się za tokeny, nie za minuty, ale do
+    # szacunku używamy przelicznika minutowego. Wartość poniżej to ROBOCZE
+    # założenie równe stawce Whispera — dopóki nie zostanie zweryfikowana,
+    # koszty transkrypcji w statystykach mogą być zaniżone lub zawyżone.
+    # Rzeczywiste zużycie tokenów jest logowane przy każdej transkrypcji.
+    DIARIZE_PER_MINUTE_USD = 0.006
+
     # GPT-4o-mini - chat completion
     GPT4O_MINI_INPUT_PER_1M_TOKENS_USD = 0.15   # $0.15 za 1M tokenów input
     GPT4O_MINI_OUTPUT_PER_1M_TOKENS_USD = 0.60  # $0.60 za 1M tokenów output
@@ -42,6 +50,20 @@ class CostCalculator:
 
         logger.debug(f"Whisper cost: {duration_seconds}s = {duration_minutes:.2f}min = ${cost:.6f}")
         return round(cost, 6)
+
+    @staticmethod
+    def calculate_transcription_cost(duration_seconds, model=None):
+        """
+        Koszt transkrypcji. Dla modelu diaryzującego używa DIARIZE_PER_MINUTE_USD,
+        w pozostałych przypadkach stawki Whispera.
+        """
+        stawka = (CostCalculator.DIARIZE_PER_MINUTE_USD
+                  if model and "diarize" in model
+                  else CostCalculator.WHISPER_PER_MINUTE_USD)
+        koszt = (duration_seconds / 60.0) * stawka
+        logger.info(f"Koszt transkrypcji ({model or 'whisper'}): "
+                    f"{duration_seconds}s = ${koszt:.6f}")
+        return koszt
 
     @staticmethod
     def calculate_gpt_cost(input_tokens, output_tokens):

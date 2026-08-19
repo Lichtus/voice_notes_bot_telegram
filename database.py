@@ -25,6 +25,7 @@ class Notatka(Base):
     temat = Column(String(255), nullable=False)
     opis = Column(Text)
     transkrypcja = Column(Text)
+    transkrypcja_segmenty = Column(Text)  # JSON: [{mowca,start,end,tekst,czesc}] z diaryzacji
     audio_file_id = Column(Text)  # Telegram file_id
     photo_file_ids = Column(Text)  # JSON array z Telegram file_id zdjęć
     embedding = Column(Text)  # JSON embedding dla semantic search
@@ -127,7 +128,8 @@ class Database:
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id,
+                    segmenty=None, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -222,6 +224,7 @@ class Database:
             temat=temat,
             opis=opis,
             transkrypcja=transkrypcja,
+            transkrypcja_segmenty=json.dumps(segmenty, ensure_ascii=False) if segmenty else None,
             audio_file_id=audio_file_id,
             photo_file_ids=photos_json,
             embedding=embedding_json,
@@ -244,6 +247,7 @@ class Database:
         return notatka
 
     def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
+                       segmenty=None,
                        zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None,
                        kluczowe_mysli=None, terminy=None, czy_analizowane=None, analiza_data=None):
         """
@@ -296,6 +300,9 @@ class Database:
             notatka.opis = opis
         if transkrypcja is not None:
             notatka.transkrypcja = transkrypcja
+
+        if segmenty is not None:
+            notatka.transkrypcja_segmenty = json.dumps(segmenty, ensure_ascii=False) if segmenty else None
         if kategoria is not None:
             notatka.kategoria = kategoria
 

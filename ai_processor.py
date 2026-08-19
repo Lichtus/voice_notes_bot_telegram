@@ -5,7 +5,8 @@ import json
 import logging
 from io import BytesIO
 from openai import OpenAI
-from config import OPENAI_API_KEY, WHISPER_MODEL, GPT_MODEL, EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT
+from config import (OPENAI_API_KEY, TRANSCRIPTION_MODEL, WHISPER_MODEL, GPT_MODEL,
+                    EXTRACTION_PROMPT, DEEP_ANALYSIS_PROMPT)
 
 logger = logging.getLogger(__name__)
 
@@ -21,40 +22,85 @@ class AIProcessor:
 
     def transcribe_audio(self, audio_bytes, filename="voice.ogg"):
         """
-        Transkrybuje audio do tekstu używając Whisper
+        Transkrybuje audio z rozpoznaniem mówców.
 
         Args:
             audio_bytes: Bajty pliku audio
-            filename: Nazwa pliku (dla OpenAI API)
+            filename: Nazwa pliku — MUSI mieć rozszerzenie zgodne z rzeczywistą
+                zawartością, API odrzuca niepasujące (np. plik M4A nazwany .ogg)
 
         Returns:
-            tuple: (transcript_text, duration_seconds)
-                - transcript_text: Transkrypcja tekstu
-                - duration_seconds: Szacowana długość audio w sekundach
+            dict: {
+                "tekst": str,          pełna transkrypcja
+                "czas_s": int,         RZECZYWISTY czas nagrania z API
+                "segmenty": list,      [{"mowca","start","end","tekst"}], puste dla whisper-1
+                "mowcy": list[str],    posortowane etykiety mówców, np. ["A","B"]
+                "tokeny_input": int,
+                "tokeny_output": int,
+            }
         """
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = filename
+
+        logger.info(f"Rozpoczynam transkrypcję audio ({len(audio_bytes)} bajtów)")
+
         try:
-            audio_file = BytesIO(audio_bytes)
-            audio_file.name = filename
-
-            logger.info(f"Rozpoczynam transkrypcję audio ({len(audio_bytes)} bajtów)")
-
-            # Szacowanie długości audio na podstawie rozmiaru pliku
-            # Dla OGG Opus: ~6-12 KB/s (zależne od jakości)
-            # Używamy konserwatywnego szacunku: 10 KB/s
-            estimated_duration = max(1, len(audio_bytes) / 10000)  # w sekundach
-
-            transcript = self.client.audio.transcriptions.create(
+            odp = self.client.audio.transcriptions.create(
                 file=audio_file,
-                model=WHISPER_MODEL,
-                response_format="text"
+                model=TRANSCRIPTION_MODEL,
+                response_format="diarized_json"
             )
-
-            logger.info(f"Transkrypcja zakończona: {len(transcript)} znaków, ~{estimated_duration:.1f}s")
-            return transcript, int(estimated_duration)
-
         except Exception as e:
-            logger.error(f"Błąd podczas transkrypcji: {e}")
-            raise
+            # Nie zostawiamy użytkownika bez notatki, jeśli model diaryzujący
+            # zawiedzie — Whisper nie da mówców, ale da treść.
+            logger.warning(f"Model diaryzujący zawiódł ({e}); używam {WHISPER_MODEL}")
+            return self._transkrypcja_awaryjna(audio_bytes, filename)
+
+        segmenty = [
+            {
+                "mowca": s.speaker,
+                "start": round(s.start, 2),
+                "end": round(s.end, 2),
+                "tekst": s.text.strip(),
+            }
+            for s in (odp.segments or [])
+        ]
+        mowcy = sorted({s["mowca"] for s in segmenty})
+
+        uzycie = getattr(odp, "usage", None)
+        tok_in = getattr(uzycie, "input_tokens", 0) or 0
+        tok_out = getattr(uzycie, "output_tokens", 0) or 0
+
+        czas = int(round(odp.duration or 0)) or 1
+        logger.info(
+            f"Transkrypcja: {len(odp.text)} znaków, {czas}s, "
+            f"{len(segmenty)} segmentów, mówcy: {mowcy or 'brak'}"
+        )
+
+        return {
+            "tekst": odp.text,
+            "czas_s": czas,
+            "segmenty": segmenty,
+            "mowcy": mowcy,
+            "tokeny_input": tok_in,
+            "tokeny_output": tok_out,
+        }
+
+    def _transkrypcja_awaryjna(self, audio_bytes, filename):
+        """Whisper bez diaryzacji. Czasu nagrania nie zna, więc go szacuje."""
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = filename
+        tekst = self.client.audio.transcriptions.create(
+            file=audio_file, model=WHISPER_MODEL, response_format="text"
+        )
+        return {
+            "tekst": tekst,
+            "czas_s": max(1, int(len(audio_bytes) / 10000)),
+            "segmenty": [],
+            "mowcy": [],
+            "tokeny_input": 0,
+            "tokeny_output": 0,
+        }
 
     def extract_structure(self, transcription):
         """
@@ -223,8 +269,10 @@ class AIProcessor:
         try:
             from cost_calculator import CostCalculator
 
-            # Krok 1: Transkrypcja
-            transcription, audio_duration = self.transcribe_audio(audio_bytes, filename)
+            # Krok 1: Transkrypcja (z rozpoznaniem mówców)
+            tr = self.transcribe_audio(audio_bytes, filename)
+            transcription = tr["tekst"]
+            audio_duration = tr["czas_s"]
 
             # Krok 2: Ekstrakcja struktury (ze smart klasyfikacją)
             structure, gpt_usage = self.extract_structure(transcription)
@@ -235,7 +283,8 @@ class AIProcessor:
             embedding, embedding_tokens = self.get_embedding(embedding_text)
 
             # Krok 4: Obliczanie kosztów
-            cost_whisper = CostCalculator.calculate_whisper_cost(audio_duration)
+            cost_whisper = CostCalculator.calculate_transcription_cost(
+                audio_duration, TRANSCRIPTION_MODEL)
             cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
                 gpt_usage['input_tokens'],
                 gpt_usage['output_tokens']
@@ -255,6 +304,8 @@ class AIProcessor:
             # Połącz wyniki
             return {
                 "transkrypcja": transcription,
+                "segmenty": tr["segmenty"],
+                "mowcy": tr["mowcy"],
                 "temat": structure["temat"],
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],

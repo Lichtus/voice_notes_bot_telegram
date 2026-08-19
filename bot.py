@@ -1,6 +1,7 @@
 """
 Telegram Bot do notatek głosowych z automatyczną ekstrakcją struktury przez AI
 """
+import json
 import logging
 import os
 from datetime import datetime
@@ -16,7 +17,7 @@ from telegram.ext import (
 )
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, validate_config
+from config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, TRANSCRIPTION_MODEL, validate_config
 from database import Database
 from ai_processor import AIProcessor
 
@@ -164,7 +165,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Transkrypcja dla wykrycia keywordu (szybka, bez embeddingu)
         await update.message.reply_text("🔄 Transkrybuję audio...")
-        transcription, _ = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        transcription = _tr["tekst"]
 
         # Loguj transkrypcję dla debugowania
         logger.info(f"Transkrypcja otrzymana: '{transcription}'")
@@ -310,6 +312,71 @@ async def handle_voice_search(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 
+def podsumowanie_mowcow(segmenty):
+    """
+    Krótka informacja o rozmówcach, np. "🗣️ ROZMÓWCY: A (2:10), B (0:45)".
+
+    Zwraca None dla monologu — przy jednym mówcy taka linia tylko zaśmieca
+    podgląd, bo nie wnosi nic ponad to, co użytkownik i tak wie.
+    """
+    if not segmenty:
+        return None
+
+    czas = {}
+    for s in segmenty:
+        # Numer części rozróżnia nagrania: etykiety mówców nadaje API osobno
+        # dla każdego pliku, więc "A" z części 1 i "A" z części 2 to nie
+        # muszą być te same osoby.
+        klucz = (s.get("czesc"), s["mowca"])
+        czas[klucz] = czas.get(klucz, 0) + (s["end"] - s["start"])
+
+    if len(czas) < 2:
+        return None
+
+    czesci = {k[0] for k in czas}
+    opisy = []
+    for (nr, mowca), sek in sorted(czas.items(), key=lambda x: (-x[1], x[0])):
+        etykieta = f"Rozmówca {mowca}"
+        if len(czesci) > 1 and nr:
+            etykieta += f" (cz. {nr})"
+        opisy.append(f"{etykieta} — {int(sek)//60}:{int(sek)%60:02d}")
+    return "🗣️ *ROZMÓWCY:*\n" + "\n".join(f"• {o}" for o in opisy)
+
+
+def dialog_z_segmentow(segmenty):
+    """Transkrypcja w formie dialogu z podpisanymi wypowiedziami."""
+    if not segmenty:
+        return None
+
+    # Nagłówki części mają sens tylko wtedy, gdy notatka powstała z kilku
+    # nagrań — przy jednym byłyby zbędnym szumem.
+    wiele_czesci = len({s.get("czesc") for s in segmenty if s.get("czesc")}) > 1
+
+    linie, poprzednia_czesc = [], None
+    for s in segmenty:
+        if wiele_czesci and s.get("czesc") != poprzednia_czesc:
+            linie.append(f"\n[Część {s['czesc']}]")
+            poprzednia_czesc = s.get("czesc")
+        linie.append(f"Rozmówca {s['mowca']}: {s['tekst']}")
+    return "\n".join(linie).strip()
+
+
+def tekst_transkrypcji(notatka):
+    """
+    Transkrypcja do pokazania: dialog z podpisanymi rozmówcami, jeśli
+    diaryzacja wykryła więcej niż jedną osobę, inaczej zwykły tekst.
+    """
+    if not notatka.transkrypcja_segmenty:
+        return notatka.transkrypcja
+    try:
+        segmenty = json.loads(notatka.transkrypcja_segmenty)
+    except (json.JSONDecodeError, TypeError):
+        return notatka.transkrypcja
+    if len({(s.get("czesc"), s["mowca"]) for s in segmenty}) < 2:
+        return notatka.transkrypcja
+    return dialog_z_segmentow(segmenty) or notatka.transkrypcja
+
+
 async def show_note_preview(update: Update, user_id: int):
     """Pokazuje podgląd notatki do zatwierdzenia"""
     note = pending_notes.get(user_id)
@@ -332,12 +399,16 @@ async def show_note_preview(update: Update, user_id: int):
     }
     kategoria_icon = kategoria_emoji.get(note.get("kategoria", "Inne"), "📌")
 
+    mowcy_text = podsumowanie_mowcow(note.get("segmenty"))
+    mowcy_text = f"\n{mowcy_text}\n" if mowcy_text else ""
+
     message = (
         "✅ *Notatka przetworzona!*\n\n"
         f"{kategoria_icon} *KATEGORIA:* {note.get('kategoria', 'Inne')}\n\n"
         f"📌 *TEMAT:*\n{note['temat']}\n\n"
         f"📝 *OPIS:*\n{note['opis']}"
-        f"{zadania_text}\n"
+        f"{zadania_text}"
+        f"{mowcy_text}\n"
         "━━━━━━━━━━━━━━━━\n"
         "📸 Czy chcesz dodać zdjęcia do notatki?"
     )
@@ -691,11 +762,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="🔄 Transkrybuję wszystkie części..."
             )
 
+            wszystkie_segmenty = []
+
             for i, part in enumerate(audio_parts, 1):
                 logger.info(f"Transkrybuję część {i}/{part_count}")
-                transcript, duration = ai.transcribe_audio(part["bytes"], filename=part["filename"])
-                transcriptions.append(f"[Część {i}]\n{transcript}")
-                total_duration += duration
+                tr = ai.transcribe_audio(part["bytes"], filename=part["filename"])
+                transcriptions.append(f"[Część {i}]\n{tr['tekst']}")
+                total_duration += tr["czas_s"]
+                # Etykiety mówców są nadawane niezależnie w każdym wywołaniu API,
+                # więc "A" z części 1 to niekoniecznie ta sama osoba co "A"
+                # z części 2. Zapisujemy numer części, żeby nie sklejać ich w UI.
+                for s in tr["segmenty"]:
+                    wszystkie_segmenty.append({**s, "czesc": i})
 
             # Połącz transkrypcje
             combined_transcription = "\n\n".join(transcriptions)
@@ -717,7 +795,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Obliczanie kosztów
             from cost_calculator import CostCalculator
 
-            cost_whisper = CostCalculator.calculate_whisper_cost(total_duration)
+            cost_whisper = CostCalculator.calculate_transcription_cost(
+                total_duration, TRANSCRIPTION_MODEL)
             cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
                 gpt_usage['input_tokens'],
                 gpt_usage['output_tokens']
@@ -734,6 +813,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Użyj pierwszego audio jako główne (do odsłuchania)
             pending_notes[user_id]["audio_file_id"] = audio_parts[0]["file_id"]
             pending_notes[user_id]["transkrypcja"] = combined_transcription
+            pending_notes[user_id]["segmenty"] = wszystkie_segmenty
             pending_notes[user_id]["temat"] = structure["temat"]
             pending_notes[user_id]["opis"] = structure["opis"]
             pending_notes[user_id]["zadania"] = structure["zadania"]
@@ -861,6 +941,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 temat=note["temat"],
                 opis=note["opis"],
                 transkrypcja=note["transkrypcja"],
+                segmenty=note.get("segmenty"),
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
@@ -956,6 +1037,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 temat=note["temat"],
                 opis=note["opis"],
                 transkrypcja=note["transkrypcja"],
+                segmenty=note.get("segmenty"),
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
@@ -1002,6 +1084,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 temat=note["temat"],
                 opis=note["opis"],
                 transkrypcja=note["transkrypcja"],
+                segmenty=note.get("segmenty"),
                 audio_file_id=note["audio_file_id"],
                 zadania_list=note["zadania"],
                 embedding_vector=note.get("embedding"),
@@ -1057,7 +1140,7 @@ DATA UTWORZENIA:
 {notatka.data_utworzenia.strftime('%d.%m.%Y %H:%M:%S')}
 
 TRANSKRYPCJA:
-{notatka.transkrypcja}
+{tekst_transkrypcji(notatka)}
 
 =====================================
 Wygenerowano przez Voice Notes Bot
@@ -1100,9 +1183,10 @@ Wygenerowano przez Voice Notes Bot
 
         if notatka and notatka.transkrypcja:
             await query.answer()
+            tresc = tekst_transkrypcji(notatka)
 
             # Dla długich transkrypcji (>3000 znaków) - wyślij jako plik
-            if len(notatka.transkrypcja) > 3000:
+            if len(tresc) > 3000:
                 import tempfile
                 import os
 
@@ -1112,7 +1196,7 @@ Wygenerowano przez Voice Notes Bot
                     f.write(f"Temat: {notatka.temat}\n")
                     f.write(f"Data: {notatka.data_utworzenia.strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write("=" * 50 + "\n\n")
-                    f.write(notatka.transkrypcja)
+                    f.write(tresc)
                     temp_path = f.name
 
                 # Wyślij plik
@@ -1121,7 +1205,7 @@ Wygenerowano przez Voice Notes Bot
                         chat_id=update.effective_chat.id,
                         document=f,
                         filename=f"transkrypcja_{notatka.id}.txt",
-                        caption=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n📌 {notatka.temat}\n\n({len(notatka.transkrypcja)} znaków)",
+                        caption=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n📌 {notatka.temat}\n\n({len(tresc)} znaków)",
                         parse_mode='Markdown'
                     )
 
@@ -1131,7 +1215,7 @@ Wygenerowano przez Voice Notes Bot
                 # Dla krótkich transkrypcji - wyślij jako wiadomość
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n\n{notatka.transkrypcja}",
+                    text=f"📄 *Pełna transkrypcja - Notatka #{notatka.id}*\n\n{tresc}",
                     parse_mode='Markdown'
                 )
         else:
@@ -1319,7 +1403,8 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Transkrybuj nowe nagranie
         await update.message.reply_text("🔄 Transkrybuję nowe nagranie...")
-        new_transcript, audio_duration = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        _tr = ai.transcribe_audio(bytes(audio_bytes), filename=filename)
+        new_transcript, audio_duration = _tr["tekst"], _tr["czas_s"]
 
         # Dodaj timestamp edycji
         edit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1342,7 +1427,8 @@ async def edit_note_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Oblicz dodatkowe koszty
         from cost_calculator import CostCalculator
 
-        cost_whisper = CostCalculator.calculate_whisper_cost(audio_duration)
+        cost_whisper = CostCalculator.calculate_transcription_cost(
+            audio_duration, TRANSCRIPTION_MODEL)
         cost_gpt_in, cost_gpt_out, cost_gpt_total = CostCalculator.calculate_gpt_cost(
             gpt_usage['input_tokens'],
             gpt_usage['output_tokens']

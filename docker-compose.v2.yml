@@ -1,0 +1,36 @@
+# Voice Bot v2 — izolowane środowisko testowe dla diaryzacji (rozpoznawania mówców).
+#
+#   docker compose -f docker-compose.v2.yml up -d --build
+#   docker compose -f docker-compose.v2.yml exec v2 python probe_diarize.py
+#   docker compose -f docker-compose.v2.yml down
+#
+# Oddzielona od produkcji na trzech poziomach:
+#   - własna nazwa projektu, więc osobne kontenery i sieć
+#   - baza to kopia w data/test — prawdziwe notatki są nietykalne
+#   - NIE uruchamia bot.py: Telegram dopuszcza jednego odpytującego na token,
+#     więc polling w testach zabiłby produkcyjnego bota. Kontener stoi
+#     bezczynnie, testy odpalamy przez exec.
+
+name: voice-bot-v2
+
+services:
+  v2:
+    build:
+      context: .
+      target: bot
+    image: voice-bot-v2:local
+    container_name: voice-bot-v2
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/voice_notes.db
+    volumes:
+      - ./data/test:/app/data
+      # Kod montowany z dysku, nie brany z obrazu — poprawka jest widoczna
+      # od razu, bez przebudowy przy każdej iteracji testów.
+      - ./bot.py:/app/bot.py:ro
+      - ./ai_processor.py:/app/ai_processor.py:ro
+      - ./database.py:/app/database.py:ro
+      - ./config.py:/app/config.py:ro
+      - ./cost_calculator.py:/app/cost_calculator.py:ro
+      - ./probe_diarize.py:/app/probe_diarize.py:ro
+    command: ["sleep", "infinity"]

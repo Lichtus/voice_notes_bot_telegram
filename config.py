@@ -12,6 +12,9 @@ ALLOWED_USER_IDS = [int(uid) for uid in os.getenv("ALLOWED_USER_IDS", "").split(
 
 # OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Model transkrypcji. gpt-4o-transcribe-diarize rozpoznaje mówców i zwraca
+# rzeczywisty czas nagrania; whisper-1 służy jako awaryjny (bez diaryzacji).
+TRANSCRIPTION_MODEL = "gpt-4o-transcribe-diarize"
 WHISPER_MODEL = "whisper-1"
 GPT_MODEL = "gpt-4o-mini"
 
