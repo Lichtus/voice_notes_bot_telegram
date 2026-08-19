@@ -8,3 +8,13 @@ __pycache__/
 .vscode/
 .idea/
 venv/
+
+# SQLite WAL — może zawierać niezapisane dane notatek
+*.db-shm
+*.db-wal
+
+# Konfiguracja Claude Code — zawiera token API
+.claude/
+
+# Nieaktualny kod i skrypty jednorazowe
+archive/
