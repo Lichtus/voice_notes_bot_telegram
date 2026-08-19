@@ -32,6 +32,10 @@ class Notatka(Base):
     # Kategoria notatki
     kategoria = Column(String(50), default='Inne', nullable=False)  # Praca, Dom, Inne
 
+    # Nowe pola: kluczowe myśli i terminy
+    kluczowe_mysli = Column(Text, nullable=True)  # JSON array lub tekst z kluczowymi myślami
+    terminy = Column(Text, nullable=True)  # JSON array lub tekst z terminami/ustaleniami
+
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)  # NULL = aktywna, NOT NULL = usunięta
 
@@ -47,6 +51,15 @@ class Notatka(Base):
     cost_total_usd = Column(Text, nullable=True)  # Łączny koszt w USD
     processing_time = Column(Text, nullable=True)  # Czas procesowania w sekundach
     auto_category_confidence = Column(Text, nullable=True)  # Pewność automatycznej klasyfikacji (0-1)
+
+    # Pola analizy głębokiej (dla długich notatek > 5 minut)
+    czy_analizowane = Column(Boolean, default=False)  # Czy przeprowadzono dogłębną analizę
+    analiza_tytul = Column(Text, nullable=True)  # Tytuł analizy (może się różnić od temat)
+    analiza_uczestnicy = Column(Text, nullable=True)  # JSON array z uczestnikami
+    analiza_sekcje = Column(Text, nullable=True)  # JSON array z sekcjami tematycznymi
+    analiza_ustalenia = Column(Text, nullable=True)  # JSON array z ustaleniami/wnioskami
+    analiza_daty_chronologicznie = Column(Text, nullable=True)  # JSON array z datami wydarzeń
+    analiza_podsumowanie_dat = Column(Text, nullable=True)  # Podsumowanie wszystkich terminów
 
     # Relacja do zadań
     zadania = relationship("Zadanie", back_populates="notatka", cascade="all, delete-orphan")
@@ -85,17 +98,36 @@ class Database:
             self.db_type = "postgresql"
             logger.info("💾 Używam bazy danych: PostgreSQL (Supabase)")
         else:
-            # SQLite (lokalny plik)
-            self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
+            # SQLite (lokalny plik) z WAL mode dla lepszego concurrency
+            from sqlalchemy import event
+            from sqlalchemy.pool import StaticPool
+
+            self.engine = create_engine(
+                f'sqlite:///{db_path}',
+                echo=False,
+                connect_args={'check_same_thread': False, 'timeout': 30},
+                poolclass=StaticPool
+            )
+
+            # Włącz WAL mode dla lepszej współbieżności
+            @event.listens_for(self.engine, 'connect')
+            def set_sqlite_pragma(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                # WAL mode pozwala na czytanie podczas pisania
+                cursor.execute('PRAGMA journal_mode=WAL')
+                # Zwiększ timeout
+                cursor.execute('PRAGMA busy_timeout=30000')
+                cursor.close()
+
             self.db_type = "sqlite"
-            logger.info(f"💾 Używam bazy danych: SQLite ({db_path})")
+            logger.info(f"💾 Używam bazy danych: SQLite ({db_path}) z WAL mode")
 
         # Utwórz tabele jeśli nie istnieją
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne'):
+    def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -120,6 +152,17 @@ class Database:
                 "cost_total_usd": float
             }
             kategoria: Kategoria notatki ('Praca', 'Dom', 'Inne')
+            kluczowe_mysli: Lista kluczowych myśli (strings)
+            terminy: Lista terminów/ustaleń (strings)
+            czy_analizowane: Czy przeprowadzono dogłębną analizę
+            analiza_data: Dict z danymi analizy {
+                "tytul": str,
+                "uczestnicy": list,
+                "sekcje": list,
+                "ustalenia": list,
+                "daty_chronologicznie": list,
+                "kluczowe_daty_podsumowanie": str
+            }
 
         Returns:
             Notatka: Utworzona notatka
@@ -133,6 +176,29 @@ class Database:
         photos_json = None
         if photo_file_ids:
             photos_json = json.dumps(photo_file_ids)
+
+        # Serializuj kluczowe_mysli do JSON jeśli podane
+        kluczowe_mysli_json = None
+        if kluczowe_mysli:
+            kluczowe_mysli_json = json.dumps(kluczowe_mysli)
+
+        # Serializuj terminy do JSON jeśli podane
+        terminy_json = None
+        if terminy:
+            terminy_json = json.dumps(terminy)
+
+        # Serializuj dane analizy głębokiej jeśli podane
+        analiza_kwargs = {}
+        if czy_analizowane and analiza_data:
+            analiza_kwargs = {
+                "czy_analizowane": True,
+                "analiza_tytul": analiza_data.get("tytul"),
+                "analiza_uczestnicy": json.dumps(analiza_data.get("uczestnicy", [])) if analiza_data.get("uczestnicy") else None,
+                "analiza_sekcje": json.dumps(analiza_data.get("sekcje", [])) if analiza_data.get("sekcje") else None,
+                "analiza_ustalenia": json.dumps(analiza_data.get("ustalenia", [])) if analiza_data.get("ustalenia") else None,
+                "analiza_daty_chronologicznie": json.dumps(analiza_data.get("daty_chronologicznie", [])) if analiza_data.get("daty_chronologicznie") else None,
+                "analiza_podsumowanie_dat": analiza_data.get("kluczowe_daty_podsumowanie"),
+            }
 
         # Przygotuj dane kosztów (konwertuj float na string dla SQLite)
         cost_kwargs = {}
@@ -160,7 +226,10 @@ class Database:
             photo_file_ids=photos_json,
             embedding=embedding_json,
             kategoria=kategoria,
-            **cost_kwargs
+            kluczowe_mysli=kluczowe_mysli_json,
+            terminy=terminy_json,
+            **cost_kwargs,
+            **analiza_kwargs
         )
 
         # Dodaj zadania jeśli są
@@ -175,7 +244,8 @@ class Database:
         return notatka
 
     def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
-                       zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None):
+                       zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None,
+                       kluczowe_mysli=None, terminy=None, czy_analizowane=None, analiza_data=None):
         """
         Aktualizuje istniejącą notatkę
 
@@ -199,6 +269,17 @@ class Database:
                 "cost_total_usd": float  # będzie przeliczone
             }
             kategoria: Nowa kategoria (jeśli None - bez zmian)
+            kluczowe_mysli: Nowa lista kluczowych myśli (jeśli None - bez zmian)
+            terminy: Nowa lista terminów (jeśli None - bez zmian)
+            czy_analizowane: Nowy status analizy (jeśli None - bez zmian)
+            analiza_data: Nowe dane analizy {
+                "tytul": str,
+                "uczestnicy": list,
+                "sekcje": list,
+                "ustalenia": list,
+                "daty_chronologicznie": list,
+                "kluczowe_daty_podsumowanie": str
+            }
 
         Returns:
             Notatka: Zaktualizowana notatka lub None jeśli nie znaleziono
@@ -221,6 +302,32 @@ class Database:
         # Aktualizuj embedding
         if embedding_vector is not None:
             notatka.embedding = json.dumps(embedding_vector)
+
+        # Aktualizuj kluczowe myśli
+        if kluczowe_mysli is not None:
+            notatka.kluczowe_mysli = json.dumps(kluczowe_mysli)
+
+        # Aktualizuj terminy
+        if terminy is not None:
+            notatka.terminy = json.dumps(terminy)
+
+        # Aktualizuj pola analizy głębokiej
+        if czy_analizowane is not None:
+            notatka.czy_analizowane = czy_analizowane
+
+        if analiza_data is not None:
+            if analiza_data.get("tytul") is not None:
+                notatka.analiza_tytul = analiza_data["tytul"]
+            if analiza_data.get("uczestnicy") is not None:
+                notatka.analiza_uczestnicy = json.dumps(analiza_data["uczestnicy"])
+            if analiza_data.get("sekcje") is not None:
+                notatka.analiza_sekcje = json.dumps(analiza_data["sekcje"])
+            if analiza_data.get("ustalenia") is not None:
+                notatka.analiza_ustalenia = json.dumps(analiza_data["ustalenia"])
+            if analiza_data.get("daty_chronologicznie") is not None:
+                notatka.analiza_daty_chronologicznie = json.dumps(analiza_data["daty_chronologicznie"])
+            if analiza_data.get("kluczowe_daty_podsumowanie") is not None:
+                notatka.analiza_podsumowanie_dat = analiza_data["kluczowe_daty_podsumowanie"]
 
         # Aktualizuj zadania - ZASTĘPUJEMY wszystkie zadania
         if zadania_list is not None:

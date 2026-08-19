@@ -93,6 +93,20 @@ header h1 {
     margin-bottom: 8px;
 }
 
+/* Select All Bar */
+.select-all-bar {
+    background: #F3F2F1;
+    padding: 10px 40px;
+    border-bottom: 1px solid #EDEBE9;
+    display: none;
+}
+
+.select-all-bar input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #0078D4;
+}
+
 .subtitle {
     color: #605E5C;
     font-size: 13px;
@@ -196,12 +210,80 @@ header h1 {
     padding: 40px;
 }
 
+/* Note Checkbox Wrapper */
+.note-checkbox-wrapper {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+}
+
+.note-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #0078D4;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.note-card:hover .note-checkbox,
+.note-checkbox:checked,
+.note-card.selected .note-checkbox {
+    opacity: 1;
+}
+
+/* Selected state */
+.note-card.selected {
+    background: #DEECF9;
+    border-color: #0078D4;
+}
+
 .note-card {
     background: white;
     padding: 20px;
-    transition: box-shadow 0.2s ease;
+    transition: box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
     border: 1px solid #EDEBE9;
     position: relative;
+}
+
+/* List View */
+.notes-grid.list-view {
+    grid-template-columns: 1fr;
+    padding: 0;
+    background: transparent;
+}
+
+.notes-grid.list-view .note-card {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+    padding: 16px 40px;
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    gap: 20px;
+    align-items: center;
+}
+
+.notes-grid.list-view .note-checkbox-wrapper {
+    position: static;
+}
+
+.notes-grid.list-view .note-checkbox {
+    opacity: 1;
+}
+
+.notes-grid.list-view .note-header {
+    margin-bottom: 0;
+}
+
+.notes-grid.list-view .note-body {
+    margin: 0;
+    display: none;
+}
+
+.notes-grid.list-view .note-footer {
+    margin-top: 0;
 }
 
 .note-card:hover {
@@ -616,6 +698,16 @@ footer p {
         gap: 10px;
     }
 
+    .header-actions {
+        width: 100%;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .select-all-bar {
+        padding: 8px 20px;
+    }
+
     .filters-panel {
         padding: 15px 20px;
     }
@@ -627,6 +719,20 @@ footer p {
     .notes-grid {
         grid-template-columns: 1fr;
         padding: 20px;
+    }
+
+    /* List view on mobile */
+    .notes-grid.list-view {
+        padding: 0;
+    }
+
+    .notes-grid.list-view .note-card {
+        grid-template-columns: 40px 1fr;
+        padding: 12px 20px;
+    }
+
+    .notes-grid.list-view .note-footer {
+        grid-column: 2;
     }
 
     .note-detail {
@@ -1096,5 +1202,137 @@ footer p {
     .task-breakdown {
         flex-direction: column;
         gap: 10px;
+    }
+}
+
+/* Analiza Głęboka */
+.analysis-section {
+    background: #f8f9fa;
+    border-left: 4px solid #6c5ce7;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    border-radius: 8px;
+}
+
+.analysis-title h3 {
+    color: #6c5ce7;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+}
+
+.analysis-participants {
+    margin: 1rem 0;
+    padding: 0.75rem;
+    background: white;
+    border-radius: 4px;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.analysis-sections {
+    margin: 1.5rem 0;
+}
+
+.analysis-sections h4 {
+    color: #481D24;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+.section-block {
+    background: white;
+    padding: 1rem;
+    margin: 1rem 0;
+    border-radius: 6px;
+    border-left: 3px solid #dfe6e9;
+}
+
+.section-block h5 {
+    color: #2d3436;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+}
+
+.section-block p {
+    color: #636e72;
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+}
+
+.quotes {
+    margin-top: 0.75rem;
+}
+
+.quote {
+    font-style: italic;
+    color: #636e72;
+    border-left: 3px solid #b2bec3;
+    padding-left: 0.75rem;
+    margin: 0.5rem 0;
+    font-size: 0.95rem;
+    background: #f5f6fa;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+}
+
+.analysis-agreements,
+.analysis-dates,
+.analysis-dates-summary {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: white;
+    border-radius: 6px;
+}
+
+.analysis-agreements h4,
+.analysis-dates h4,
+.analysis-dates-summary h4 {
+    color: #481D24;
+    margin-bottom: 0.75rem;
+    font-size: 1.05rem;
+}
+
+.analysis-agreements ul,
+.analysis-dates ul {
+    list-style: none;
+    padding: 0;
+}
+
+.analysis-agreements li,
+.analysis-dates li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f1f2f6;
+    color: #2d3436;
+}
+
+.analysis-agreements li:last-child,
+.analysis-dates li:last-child {
+    border-bottom: none;
+}
+
+.analysis-dates li strong {
+    color: #0984e3;
+    margin-right: 0.5rem;
+}
+
+.analysis-dates-summary p {
+    color: #2d3436;
+    line-height: 1.7;
+}
+
+/* Responsive dla analizy głębokiej */
+@media (max-width: 768px) {
+    .analysis-section {
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .section-block {
+        padding: 0.75rem;
+    }
+
+    .quote {
+        font-size: 0.9rem;
     }
 }

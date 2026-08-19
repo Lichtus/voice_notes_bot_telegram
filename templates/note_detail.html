@@ -62,6 +62,74 @@
                 </div>
             </section>
 
+            <!-- Analiza Głęboka -->
+            {% if note.czy_analizowane and analiza %}
+            <section class="section analysis-section">
+                <h2>📊 Analiza Głęboka</h2>
+
+                {% if analiza.tytul %}
+                <div class="analysis-title">
+                    <h3>{{ analiza.tytul }}</h3>
+                </div>
+                {% endif %}
+
+                {% if analiza.uczestnicy %}
+                <div class="analysis-participants">
+                    <strong>👥 Uczestnicy:</strong>
+                    <span>{{ analiza.uczestnicy|join(', ') }}</span>
+                </div>
+                {% endif %}
+
+                {% if analiza.sekcje %}
+                <div class="analysis-sections">
+                    <h4>📋 Sekcje tematyczne:</h4>
+                    {% for sekcja in analiza.sekcje %}
+                    <div class="section-block">
+                        <h5>{{ sekcja.naglowek }}</h5>
+                        <p>{{ sekcja.tresc }}</p>
+                        {% if sekcja.cytaty %}
+                        <div class="quotes">
+                            {% for cytat in sekcja.cytaty %}
+                            <div class="quote">💬 "{{ cytat }}"</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if analiza.ustalenia %}
+                <div class="analysis-agreements">
+                    <h4>✅ Ustalenia:</h4>
+                    <ul>
+                        {% for ustalenie in analiza.ustalenia %}
+                        <li>{{ ustalenie }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                {% if analiza.daty_chronologicznie %}
+                <div class="analysis-dates">
+                    <h4>📅 Chronologia wydarzeń:</h4>
+                    <ul>
+                        {% for data in analiza.daty_chronologicznie %}
+                        <li><strong>{{ data.data }}:</strong> {{ data.wydarzenie }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                {% if analiza.podsumowanie_dat %}
+                <div class="analysis-dates-summary">
+                    <h4>🗓️ Kluczowe daty i terminy:</h4>
+                    <p>{{ analiza.podsumowanie_dat }}</p>
+                </div>
+                {% endif %}
+            </section>
+            {% endif %}
+
             <!-- Zadania -->
             {% if note.zadania %}
             <section class="section">

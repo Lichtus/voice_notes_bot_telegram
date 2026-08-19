@@ -16,13 +16,33 @@
             <div class="user-actions">
                 <a href="{{ url_for('tasks_list') }}" class="btn">📋 Zadania</a>
                 <a href="{{ url_for('statistics') }}" class="btn">📊 Statystyki</a>
-                <a href="{{ url_for('logout') }}" class="btn btn-logout">🚪 Wyloguj</a>
             </div>
         </div>
 
         <header>
-            <h1>📝 Moje Notatki</h1>
-            <p class="subtitle">Łącznie: {{ total_notes }} notatek</p>
+            <div class="header-top">
+                <div>
+                    <h1>📝 Moje Notatki</h1>
+                    <p class="subtitle">Łącznie: {{ total_notes }} notatek</p>
+                </div>
+                <div class="header-actions">
+                    <!-- Bulk Delete -->
+                    <button id="bulkDeleteBtn" class="btn btn-danger" style="display: none;">
+                        🗑️ Usuń wybrane (<span id="selectedCount">0</span>)
+                    </button>
+                    <!-- View Toggle -->
+                    <button id="viewToggleBtn" class="btn btn-secondary" title="Zmień widok">
+                        <span id="viewIcon">☰</span> <span id="viewText">Lista</span>
+                    </button>
+                </div>
+            </div>
+            <!-- Select All -->
+            <div class="select-all-bar" id="selectAllBar" style="display: none;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+                    <input type="checkbox" id="selectAllCheckbox">
+                    <span>Zaznacz wszystkie na tej stronie</span>
+                </label>
+            </div>
         </header>
 
         <!-- Formularz wyszukiwania i filtrowania -->
@@ -86,9 +106,12 @@
 
         <main>
             {% if notes %}
-                <div class="notes-grid">
+                <div class="notes-grid" id="notesGrid">
                     {% for note in notes %}
-                    <div class="note-card">
+                    <div class="note-card" data-note-id="{{ note.id }}">
+                        <div class="note-checkbox-wrapper">
+                            <input type="checkbox" class="note-checkbox" value="{{ note.id }}">
+                        </div>
                         <div class="note-header">
                             <h2><a href="{{ url_for('note_detail', note_id=note.id) }}">{{ note.temat }}</a></h2>
                             <div class="note-meta">
@@ -143,5 +166,129 @@
             <p>Voice Notes Bot © 2025</p>
         </footer>
     </div>
+
+    <script>
+        // Stan aplikacji
+        let isListView = false;
+        const selectedNotes = new Set();
+
+        // Elementy DOM
+        const notesGrid = document.getElementById('notesGrid');
+        const viewToggleBtn = document.getElementById('viewToggleBtn');
+        const viewIcon = document.getElementById('viewIcon');
+        const viewText = document.getElementById('viewText');
+        const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        const selectedCount = document.getElementById('selectedCount');
+        const selectAllBar = document.getElementById('selectAllBar');
+        const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+        const checkboxes = document.querySelectorAll('.note-checkbox');
+
+        // Przełączanie widoku (grid/lista)
+        viewToggleBtn.addEventListener('click', () => {
+            isListView = !isListView;
+            if (isListView) {
+                notesGrid.classList.add('list-view');
+                viewIcon.textContent = '▦';
+                viewText.textContent = 'Siatka';
+            } else {
+                notesGrid.classList.remove('list-view');
+                viewIcon.textContent = '☰';
+                viewText.textContent = 'Lista';
+            }
+            localStorage.setItem('notesView', isListView ? 'list' : 'grid');
+        });
+
+        // Przywróć zapisany widok
+        const savedView = localStorage.getItem('notesView');
+        if (savedView === 'list') {
+            isListView = true;
+            notesGrid.classList.add('list-view');
+            viewIcon.textContent = '▦';
+            viewText.textContent = 'Siatka';
+        }
+
+        // Obsługa checkboxów
+        function updateSelectedCount() {
+            const count = selectedNotes.size;
+            selectedCount.textContent = count;
+            bulkDeleteBtn.style.display = count > 0 ? 'inline-block' : 'none';
+            selectAllBar.style.display = count > 0 || selectAllCheckbox.checked ? 'block' : 'none';
+
+            // Aktualizuj "zaznacz wszystkie"
+            const allChecked = Array.from(checkboxes).every(cb => selectedNotes.has(cb.value));
+            selectAllCheckbox.checked = allChecked && checkboxes.length > 0;
+        }
+
+        // Checkbox dla każdej notatki
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    selectedNotes.add(e.target.value);
+                    e.target.closest('.note-card').classList.add('selected');
+                } else {
+                    selectedNotes.delete(e.target.value);
+                    e.target.closest('.note-card').classList.remove('selected');
+                }
+                updateSelectedCount();
+            });
+
+            // Zatrzymaj kliknięcie na checkboxie żeby nie otwierał linku
+            checkbox.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        });
+
+        // Zaznacz wszystkie
+        selectAllCheckbox.addEventListener('change', (e) => {
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = e.target.checked;
+                if (e.target.checked) {
+                    selectedNotes.add(checkbox.value);
+                    checkbox.closest('.note-card').classList.add('selected');
+                } else {
+                    selectedNotes.clear();
+                    checkbox.closest('.note-card').classList.remove('selected');
+                }
+            });
+            updateSelectedCount();
+        });
+
+        // Masowe usuwanie
+        bulkDeleteBtn.addEventListener('click', async () => {
+            if (selectedNotes.size === 0) return;
+
+            const count = selectedNotes.size;
+            if (!confirm(`Czy na pewno chcesz usunąć ${count} notatk${count > 4 ? 'i' : count < 2 ? 'ę' : 'ki'}?`)) {
+                return;
+            }
+
+            // Pokaż informację o postępie
+            bulkDeleteBtn.disabled = true;
+            bulkDeleteBtn.textContent = `⏳ Usuwanie...`;
+
+            let deleted = 0;
+            let failed = 0;
+
+            // Usuń pojedynczo (sekwencyjnie)
+            for (const noteId of selectedNotes) {
+                try {
+                    const response = await fetch(`/notes/${noteId}/delete`, { method: 'POST' });
+                    if (response.ok) {
+                        deleted++;
+                    } else {
+                        failed++;
+                    }
+                } catch (error) {
+                    failed++;
+                }
+            }
+
+            // Przeładuj stronę
+            if (failed > 0) {
+                alert(`Usunięto ${deleted} notatek. ${failed} nie udało się usunąć.`);
+            }
+            window.location.href = window.location.pathname;
+        });
+    </script>
 </body>
 </html>
