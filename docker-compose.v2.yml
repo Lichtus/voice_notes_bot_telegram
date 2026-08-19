@@ -36,3 +36,21 @@ services:
     # testowej (data/test), więc nie mieszają się z produkcyjnymi.
     command: ["python", "bot.py"]
     restart: unless-stopped
+
+  web-v2:
+    build:
+      context: .
+      target: web
+    image: voice-bot-v2-web:local
+    container_name: voice-bot-v2-web
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/voice_notes.db
+    volumes:
+      - .:/app
+      - ./data/test:/app/data
+    ports:
+      # 5001, żeby nie kolidować z produkcyjnym webem na 5000.
+      # Tylko localhost — widoki nie mają kontroli logowania.
+      - "127.0.0.1:5001:5000"
+    restart: unless-stopped
