@@ -75,6 +75,23 @@ OBJAŚNIENIA SEKCJI:
 - decyzje = Kluczowe decyzje i wnioski, czyli rzeczy rozstrzygnięte
 - otwarte_watki = Otwarte wątki i pomysły, czyli rzeczy nierozstrzygnięte
 
+DOPRECYZOWANIE TREŚCI:
+- Każde zadanie musi być zrozumiałe SAMODZIELNIE, bez czytania reszty notatki.
+  Zapisz: co zrobić, czego lub kogo dotyczy, po co albo w jakim kontekście,
+  oraz termin jeśli padł. Jedno zdanie, ale pełne.
+  Źle: "Wysłać specyfikację"
+  Dobrze: "Wysłać Kowalskiemu specyfikację techniczną środowiska pilotażowego
+  do piątku, bo w poniedziałek ma komitet sterujący"
+- kluczowe_mysli NIE MOGĄ powtarzać zadań ani decyzji. Ich rolą jest kontekst,
+  przyczyny, liczby, argumenty i konsekwencje. Zapisz DLACZEGO coś zostało
+  powiedziane i co z tego wynika, 2-3 zdania na wątek.
+- Zachowaj wszystkie konkrety, które padły: kwoty, procenty, terminy, nazwy,
+  liczby, powody opóźnień. To one najczęściej giną przy streszczaniu.
+
+OGRANICZENIE:
+- Nie rozwlekaj i nie dodawaj zdań, które nic nie wnoszą. Nie uzupełniaj
+  informacji, których nie ma w transkrypcji — lepiej krótko niż zmyślone.
+
 KATEGORIE:
 - "Praca" - sprawy służbowe (klient, projekt, spotkanie, raport, deadline, szef, firma)
 - "Dom" - sprawy prywatne (rodzina, zakupy, dom, wakacje, dziecko, małżonka)
