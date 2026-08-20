@@ -36,6 +36,7 @@ class Notatka(Base):
     # Nowe pola: kluczowe myśli i terminy
     kluczowe_mysli = Column(Text, nullable=True)  # JSON array lub tekst z kluczowymi myślami
     terminy = Column(Text, nullable=True)  # JSON array lub tekst z terminami/ustaleniami
+    rozmowcy = Column(Text, nullable=True)  # JSON array: kto co mówił (tylko dialogi)
     decyzje = Column(Text, nullable=True)  # JSON array: decyzje i wnioski (rozstrzygnięte)
     otwarte_watki = Column(Text, nullable=True)  # JSON array: pomysły i wątpliwości (do rozstrzygnięcia)
 
@@ -149,7 +150,7 @@ class Database:
 
     def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id,
                     segmenty=None, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, decyzje=None, otwarte_watki=None,
-                    czy_analizowane=False, analiza_data=None):
+                    rozmowcy=None, czy_analizowane=False, analiza_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -204,6 +205,7 @@ class Database:
         if kluczowe_mysli:
             kluczowe_mysli_json = json.dumps(kluczowe_mysli, ensure_ascii=False)
 
+        rozmowcy_json = json.dumps(rozmowcy, ensure_ascii=False) if rozmowcy else None
         decyzje_json = json.dumps(decyzje, ensure_ascii=False) if decyzje else None
         otwarte_json = json.dumps(otwarte_watki, ensure_ascii=False) if otwarte_watki else None
 
@@ -254,6 +256,7 @@ class Database:
             kategoria=kategoria,
             kluczowe_mysli=kluczowe_mysli_json,
             terminy=terminy_json,
+            rozmowcy=rozmowcy_json,
             decyzje=decyzje_json,
             otwarte_watki=otwarte_json,
             **cost_kwargs,
@@ -275,7 +278,7 @@ class Database:
                        segmenty=None,
                        zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None,
                        kluczowe_mysli=None, terminy=None, decyzje=None, otwarte_watki=None,
-                       czy_analizowane=None, analiza_data=None):
+                       rozmowcy=None, czy_analizowane=None, analiza_data=None):
         """
         Aktualizuje istniejącą notatkę
 

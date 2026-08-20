@@ -519,6 +519,7 @@ def note_detail(note_id):
         return dane if isinstance(dane, list) else []
 
     sekcje = {
+        'rozmowcy': _sekcja(note.rozmowcy),
         'kluczowe_mysli': _sekcja(note.kluczowe_mysli),
         'decyzje': _sekcja(note.decyzje),
         'terminy': _sekcja(note.terminy),
@@ -1048,6 +1049,7 @@ def przetworz_wgrane(job_id, audio_bytes, nazwa, user_id, dostawca):
             kategoria=wynik.get('kategoria', 'Inne'),
             kluczowe_mysli=wynik.get('kluczowe_mysli'),
             terminy=wynik.get('terminy'),
+            rozmowcy=wynik.get('rozmowcy'),
             decyzje=wynik.get('decyzje'),
             otwarte_watki=wynik.get('otwarte_watki'),
         )

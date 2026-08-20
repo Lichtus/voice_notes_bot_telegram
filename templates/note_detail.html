@@ -178,6 +178,17 @@
             {% endif %}
 
             <!-- Sekcje podsumowania -->
+            {% if sekcje.rozmowcy %}
+            <section class="section">
+                <h2>👥 Kto co mówił</h2>
+                <ul class="summary-list">
+                    {% for r in sekcje.rozmowcy %}
+                    <li><strong>{{ r.mowca }}:</strong> {{ r.podsumowanie }}</li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
             {% if sekcje.kluczowe_mysli %}
             <section class="section">
                 <h2>💡 Główne myśli i tematy</h2>

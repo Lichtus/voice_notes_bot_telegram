@@ -447,6 +447,12 @@ def sekcje_notatki(zrodlo, skrocone=False):
 
     czesci = []
 
+    rozmowcy = pole("rozmowcy")
+    if rozmowcy:
+        czesci.append("👥 *KTO CO MÓWIŁ:*\n" + "\n".join(
+            f"• *{r.get('mowca', 'Rozmówca')}:* {r.get('podsumowanie', '')}"
+            for r in rozmowcy if isinstance(r, dict)))
+
     mysli = pole("kluczowe_mysli")
     if mysli:
         linie = []
@@ -940,7 +946,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="🤖 Analizuję i wyciągam strukturę..."
             )
 
-            structure, gpt_usage = ai.extract_structure(combined_transcription)
+            # Do analizy podajemy dialog z etykietami mówców, jeśli rozpoznano
+            # więcej niż jedną osobę — bez tego GPT nie wie, kto co powiedział,
+            # i nie potrafi podsumować wypowiedzi poszczególnych rozmówców.
+            tekst_do_analizy = combined_transcription
+            if len({(s.get("czesc"), s["mowca"]) for s in wszystkie_segmenty}) > 1:
+                dialog = dialog_z_segmentow(wszystkie_segmenty)
+                if dialog:
+                    tekst_do_analizy = dialog
+                    logger.info("Analiza na dialogu z podziałem na mówców")
+
+            structure, gpt_usage = ai.extract_structure(tekst_do_analizy)
 
             # Generowanie embedding
             embedding_text = f"{structure['temat']}. {structure['opis']}"
@@ -974,6 +990,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_notes[user_id]["kategoria"] = structure["kategoria"]
             pending_notes[user_id]["kluczowe_mysli"] = structure.get("kluczowe_mysli", [])
             pending_notes[user_id]["terminy"] = structure.get("terminy", [])
+            pending_notes[user_id]["rozmowcy"] = structure.get("rozmowcy", [])
             pending_notes[user_id]["decyzje"] = structure.get("decyzje", [])
             pending_notes[user_id]["otwarte_watki"] = structure.get("otwarte_watki", [])
             pending_notes[user_id]["embedding"] = embedding
@@ -1108,6 +1125,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kategoria=note.get("kategoria", "Inne"),
                 kluczowe_mysli=note.get("kluczowe_mysli"),
                 terminy=note.get("terminy"),
+                rozmowcy=note.get("rozmowcy"),
                 decyzje=note.get("decyzje"),
                 otwarte_watki=note.get("otwarte_watki"),
                 czy_analizowane=czy_analizowane,
@@ -1208,6 +1226,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kategoria=note.get("kategoria", "Inne"),
                 kluczowe_mysli=note.get("kluczowe_mysli"),
                 terminy=note.get("terminy"),
+                rozmowcy=note.get("rozmowcy"),
                 decyzje=note.get("decyzje"),
                 otwarte_watki=note.get("otwarte_watki"),
                 czy_analizowane=czy_analizowane,
@@ -1259,6 +1278,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kategoria=note.get("kategoria", "Inne"),
                 kluczowe_mysli=note.get("kluczowe_mysli"),
                 terminy=note.get("terminy"),
+                rozmowcy=note.get("rozmowcy"),
                 decyzje=note.get("decyzje"),
                 otwarte_watki=note.get("otwarte_watki"),
             )
@@ -2099,6 +2119,15 @@ def sekcje_html(zrodlo):
         return (str(x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
     html = ""
+    rozmowcy = pole("rozmowcy")
+    if rozmowcy:
+        html += "<div class='sekcja'><h2>👥 Kto co mówił</h2><ul>"
+        for r in rozmowcy:
+            if isinstance(r, dict):
+                html += (f"<li><strong>{escape(r.get('mowca', 'Rozmówca'))}:</strong> "
+                         f"{escape(r.get('podsumowanie', ''))}</li>")
+        html += "</ul></div>"
+
     mysli = pole("kluczowe_mysli")
     if mysli:
         html += "<div class='sekcja'><h2>💡 Główne myśli i tematy</h2><ul>"

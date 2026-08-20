@@ -54,6 +54,9 @@ Odpowiedz TYLKO w formacie JSON:
   "kategoria": "Praca/Dom/Inne",
   "confidence": 0.85,
   "opis": "PODSUMOWANIE: 2-3 zwięzłe zdania opisujące główny wątek, cel lub esencję nagrania",
+  "rozmowcy": [
+    {{"mowca": "Rozmówca A", "podsumowanie": "co ta osoba wniosła do rozmowy, jej stanowisko i najważniejsze wypowiedzi, 1-2 zdania"}}
+  ],
   "kluczowe_mysli": [
     {{"watek": "nazwa poruszonego tematu", "tresc": "najważniejsze spostrzeżenia, omówione fakty lub pomysły w tym wątku"}}
   ],
@@ -65,6 +68,8 @@ Odpowiedz TYLKO w formacie JSON:
 
 OBJAŚNIENIA SEKCJI:
 - opis = Podsumowanie (Overview), esencja w 2-3 zdaniach
+- rozmowcy = kto co mówił; WYPEŁNIJ TYLKO, gdy transkrypcja ma oznaczonych
+  rozmówców (np. "Rozmówca A:"). Dla monologu zwróć pustą tablicę []
 - kluczowe_mysli = Główne myśli i tematy, pogrupowane w bloki tematyczne
 - zadania = Zadania i kolejne kroki, każde jako konkretne działanie
 - decyzje = Kluczowe decyzje i wnioski, czyli rzeczy rozstrzygnięte
@@ -80,6 +85,8 @@ WAŻNE:
 - Confidence to liczba 0-1 (pewność klasyfikacji kategorii)
 - Rozróżniaj: decyzje = rozstrzygnięte, otwarte_watki = do rozstrzygnięcia
 - Zadanie to AKCJA do wykonania, nie obserwacja
+- Przy oznaczonych rozmówcach zachowaj ich etykiety dokładnie tak, jak
+  występują w transkrypcji
 """
 
 DEEP_ANALYSIS_PROMPT = """Rola: Działaj jako profesjonalny analityk i dokumentator. Twoim zadaniem jest przetworzenie transkrypcji notatki głosowej (lub rozmowy) na ustrukturyzowany raport.

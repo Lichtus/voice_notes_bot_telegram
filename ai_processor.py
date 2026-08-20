@@ -269,12 +269,18 @@ class AIProcessor:
 
             # Sekcje listowe — brak danych ma dawać pustą listę, nie wysypywać
             # zapisu. Model bywa niekonsekwentny, gdy sekcja jest pusta.
-            for sekcja in ("kluczowe_mysli", "terminy", "decyzje", "otwarte_watki"):
+            for sekcja in ("kluczowe_mysli", "terminy", "decyzje",
+                           "otwarte_watki", "rozmowcy"):
                 if not isinstance(result.get(sekcja), list):
                     result[sekcja] = []
 
             # Bloki tematyczne przychodzą jako {watek, tresc}; starsze notatki
             # mają w tej kolumnie zwykłe napisy, więc oba warianty są poprawne.
+            result["rozmowcy"] = [
+                r for r in result["rozmowcy"]
+                if isinstance(r, dict) and r.get("mowca") and r.get("podsumowanie")
+            ]
+
             result["kluczowe_mysli"] = [
                 m for m in result["kluczowe_mysli"]
                 if isinstance(m, str) or (isinstance(m, dict) and m.get("tresc"))
@@ -302,7 +308,8 @@ class AIProcessor:
                 f"Ekstrakcja: temat='{result['temat']}', kategoria='{result['kategoria']}' "
                 f"({result['confidence']:.2f}) | {len(result['zadania'])} zadań, "
                 f"{len(result['kluczowe_mysli'])} wątków, {len(result['decyzje'])} decyzji, "
-                f"{len(result['otwarte_watki'])} otwartych"
+                f"{len(result['otwarte_watki'])} otwartych, "
+                f"{len(result['rozmowcy'])} rozmówców"
             )
             return result, usage
 
@@ -394,7 +401,13 @@ class AIProcessor:
             audio_duration = tr["czas_s"]
 
             # Krok 2: Ekstrakcja struktury (ze smart klasyfikacją)
-            structure, gpt_usage = self.extract_structure(transcription)
+            # Analiza dostaje dialog z etykietami, gdy rozpoznano wielu mówców
+            tekst_do_analizy = transcription
+            if len(tr.get("mowcy") or []) > 1 and tr.get("segmenty"):
+                tekst_do_analizy = "\n".join(
+                    f"Rozmówca {s['mowca']}: {s['tekst']}" for s in tr["segmenty"])
+
+            structure, gpt_usage = self.extract_structure(tekst_do_analizy)
 
             # Krok 3: Generowanie embedding dla semantycznego wyszukiwania
             # Używamy kombinacji tematu i opisu dla najlepszego dopasowania
@@ -429,6 +442,7 @@ class AIProcessor:
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],
                 "kategoria": structure["kategoria"],
+                "rozmowcy": structure.get("rozmowcy", []),
                 "kluczowe_mysli": structure.get("kluczowe_mysli", []),
                 "terminy": structure.get("terminy", []),
                 "decyzje": structure.get("decyzje", []),
