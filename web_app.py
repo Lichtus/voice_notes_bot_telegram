@@ -508,6 +508,23 @@ def note_detail(note_id):
         'auto_category_confidence': note.auto_category_confidence
     }
 
+    def _sekcja(wartosc):
+        """Sekcja z bazy: JSON w TEXT, ewentualnie zwykły napis w starszych notatkach."""
+        if not wartosc:
+            return []
+        try:
+            dane = json.loads(wartosc)
+        except (json.JSONDecodeError, TypeError):
+            return [wartosc]
+        return dane if isinstance(dane, list) else []
+
+    sekcje = {
+        'kluczowe_mysli': _sekcja(note.kluczowe_mysli),
+        'decyzje': _sekcja(note.decyzje),
+        'terminy': _sekcja(note.terminy),
+        'otwarte_watki': _sekcja(note.otwarte_watki),
+    }
+
     # Podział na rozmówców — pokazujemy tylko, gdy diaryzacja rozpoznała
     # więcej niż jedną osobę. Przy monologu byłby to zbędny szum.
     rozmowa = None
@@ -543,7 +560,7 @@ def note_detail(note_id):
             }
 
     return render_template('note_detail.html', note=note_data, analiza=analiza,
-                           rozmowa=rozmowa, user=session)
+                           rozmowa=rozmowa, sekcje=sekcje, user=session)
 
 
 @app.route('/notes/<int:note_id>/delete', methods=['POST'])
@@ -1029,6 +1046,10 @@ def przetworz_wgrane(job_id, audio_bytes, nazwa, user_id, dostawca):
             embedding_vector=wynik.get('embedding'),
             cost_data=wynik.get('cost_data'),
             kategoria=wynik.get('kategoria', 'Inne'),
+            kluczowe_mysli=wynik.get('kluczowe_mysli'),
+            terminy=wynik.get('terminy'),
+            decyzje=wynik.get('decyzje'),
+            otwarte_watki=wynik.get('otwarte_watki'),
         )
         # Odczyt PRZED zamknięciem sesji — potem obiekt jest od niej odpięty
         # i każde sięgnięcie po atrybut kończy się DetachedInstanceError.

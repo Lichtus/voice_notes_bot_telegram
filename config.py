@@ -34,26 +34,41 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "voice_notes.db")
 DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL/Supabase URL (opcjonalne)
 
 # Prompts
-EXTRACTION_PROMPT = """Jesteś moim osobistym sekretarzem i profesjonalnym skrybą. Twoim zadaniem jest przetworzenie chaotycznej transkrypcji moich notatek głosowych na uporządkowaną listę konkreów.
+EXTRACTION_PROMPT = """Jesteś precyzyjnym asystentem AI ds. analizy audio i notatek głosowych.
 
-Zastosuj następujące zasady:
-1. PERSPEKTYWA: Pisz wyłącznie w 1. osobie liczby pojedynczej (np. "Muszę zadzwonić", "Zrobię", "Zaplanowałem"). Nigdy nie używaj zwrotów typu "Użytkownik powiedział", "Notatka dotyczy".
-2. STYL: Zamień potok słów na poprawną, elegancką polszczyznę. Usuń powtórzenia, wypełniacze ("eeeyy", "yyy") oraz dygresje, które nie wnoszą nic do meritum.
-3. STRUKTURA: Wyciągnij informacje i pogrupuj je odpowiednio.
+Twoim zadaniem jest przetworzenie poniższej transkrypcji (może to być dialog wieloosobowy, spotkanie biznesowe lub swobodny monolog/strumień myśli) na ustrukturyzowaną, konkretną notatkę.
 
-Transkrypcja:
+ZASADY:
+1. Pomiń wtrącenia, powtórzenia, zacięcia językowe i nieistotny small talk.
+2. Zachowaj esencję, fakty, liczby, pomysły i kontekst wypowiedzi.
+3. Dopasuj formę sekcji do typu nagrania (dialog vs. jednoosobowa notatka).
+4. Nie wymyślaj informacji, których nie ma w tekście.
+5. Pisz z perspektywy autora notatki — nie "użytkownik powiedział", tylko wprost o rzeczy.
+
+TRANSKRYPCJA:
 "{transcription}"
 
 Odpowiedz TYLKO w formacie JSON:
 {{
-  "temat": "krótki tytuł (max 80 znaków)",
-  "opis": "zwięzły opis notatki w 1. osobie - streszczenie tego o czym jest notatka",
-  "zadania": ["lista konkretnych zadań do wykonania - tylko to co musi być zrobione"],
-  "kluczowe_mysli": ["lista najważniejszych myśli, wniosków, pomysłów"],
-  "terminy": ["lista terminów, dat, spotkań, ustaleń z godzinami i osobami"],
+  "temat": "krótki tytuł notatki (max 80 znaków)",
   "kategoria": "Praca/Dom/Inne",
-  "confidence": 0.85
+  "confidence": 0.85,
+  "opis": "PODSUMOWANIE: 2-3 zwięzłe zdania opisujące główny wątek, cel lub esencję nagrania",
+  "kluczowe_mysli": [
+    {{"watek": "nazwa poruszonego tematu", "tresc": "najważniejsze spostrzeżenia, omówione fakty lub pomysły w tym wątku"}}
+  ],
+  "zadania": ["konkretne działania wynikające z wypowiedzi"],
+  "terminy": ["daty, godziny i ustalenia czasowe, które nie są zadaniami"],
+  "decyzje": ["decyzje, konkluzje lub definitywne przemyślenia autora"],
+  "otwarte_watki": ["luźne koncepcje, wątpliwości, kwestie do sprawdzenia lub przemyślenia w przyszłości"]
 }}
+
+OBJAŚNIENIA SEKCJI:
+- opis = Podsumowanie (Overview), esencja w 2-3 zdaniach
+- kluczowe_mysli = Główne myśli i tematy, pogrupowane w bloki tematyczne
+- zadania = Zadania i kolejne kroki, każde jako konkretne działanie
+- decyzje = Kluczowe decyzje i wnioski, czyli rzeczy rozstrzygnięte
+- otwarte_watki = Otwarte wątki i pomysły, czyli rzeczy nierozstrzygnięte
 
 KATEGORIE:
 - "Praca" - sprawy służbowe (klient, projekt, spotkanie, raport, deadline, szef, firma)
@@ -61,13 +76,10 @@ KATEGORIE:
 - "Inne" - wszystko inne
 
 WAŻNE:
-- Pisz wyłącznie w 1. osobie pojedynczej
-- Usuń wypełniacze i powtórzenia
-- Jeśli brak danych w danej kategorii → pusta tablica: []
+- Jeśli brak danych w danej sekcji → pusta tablica: []
 - Confidence to liczba 0-1 (pewność klasyfikacji kategorii)
-- Zadania = to co DO ZROBIENIA (akcje)
-- Kluczowe myśli = WNIOSKI i POMYSŁY (refleksje)
-- Terminy = DATY, GODZINY, MIEJSCA, OSOBY
+- Rozróżniaj: decyzje = rozstrzygnięte, otwarte_watki = do rozstrzygnięcia
+- Zadanie to AKCJA do wykonania, nie obserwacja
 """
 
 DEEP_ANALYSIS_PROMPT = """Rola: Działaj jako profesjonalny analityk i dokumentator. Twoim zadaniem jest przetworzenie transkrypcji notatki głosowej (lub rozmowy) na ustrukturyzowany raport.

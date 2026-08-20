@@ -267,6 +267,19 @@ class AIProcessor:
             if not isinstance(result["zadania"], list):
                 result["zadania"] = []
 
+            # Sekcje listowe — brak danych ma dawać pustą listę, nie wysypywać
+            # zapisu. Model bywa niekonsekwentny, gdy sekcja jest pusta.
+            for sekcja in ("kluczowe_mysli", "terminy", "decyzje", "otwarte_watki"):
+                if not isinstance(result.get(sekcja), list):
+                    result[sekcja] = []
+
+            # Bloki tematyczne przychodzą jako {watek, tresc}; starsze notatki
+            # mają w tej kolumnie zwykłe napisy, więc oba warianty są poprawne.
+            result["kluczowe_mysli"] = [
+                m for m in result["kluczowe_mysli"]
+                if isinstance(m, str) or (isinstance(m, dict) and m.get("tresc"))
+            ]
+
             # Walidacja kategorii
             allowed_categories = ["Praca", "Dom", "Inne"]
             if result["kategoria"] not in allowed_categories:
@@ -285,7 +298,12 @@ class AIProcessor:
                     logger.warning(f"Nieprawidłowa wartość confidence: {result['confidence']}, ustawiam 0.5")
                     result["confidence"] = 0.5
 
-            logger.info(f"Ekstrakcja zakończona: temat='{result['temat']}', kategoria='{result['kategoria']}' (confidence: {result['confidence']:.2f}), {len(result['zadania'])} zadań")
+            logger.info(
+                f"Ekstrakcja: temat='{result['temat']}', kategoria='{result['kategoria']}' "
+                f"({result['confidence']:.2f}) | {len(result['zadania'])} zadań, "
+                f"{len(result['kluczowe_mysli'])} wątków, {len(result['decyzje'])} decyzji, "
+                f"{len(result['otwarte_watki'])} otwartych"
+            )
             return result, usage
 
         except json.JSONDecodeError as e:
@@ -411,6 +429,10 @@ class AIProcessor:
                 "opis": structure["opis"],
                 "zadania": structure["zadania"],
                 "kategoria": structure["kategoria"],
+                "kluczowe_mysli": structure.get("kluczowe_mysli", []),
+                "terminy": structure.get("terminy", []),
+                "decyzje": structure.get("decyzje", []),
+                "otwarte_watki": structure.get("otwarte_watki", []),
                 "embedding": embedding,
                 "cost_data": {
                     "audio_duration_seconds": audio_duration,

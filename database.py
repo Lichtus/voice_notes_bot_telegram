@@ -36,6 +36,8 @@ class Notatka(Base):
     # Nowe pola: kluczowe myśli i terminy
     kluczowe_mysli = Column(Text, nullable=True)  # JSON array lub tekst z kluczowymi myślami
     terminy = Column(Text, nullable=True)  # JSON array lub tekst z terminami/ustaleniami
+    decyzje = Column(Text, nullable=True)  # JSON array: decyzje i wnioski (rozstrzygnięte)
+    otwarte_watki = Column(Text, nullable=True)  # JSON array: pomysły i wątpliwości (do rozstrzygnięcia)
 
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)  # NULL = aktywna, NOT NULL = usunięta
@@ -146,7 +148,8 @@ class Database:
         self.session = Session()
 
     def add_notatka(self, telegram_user_id, temat, opis, transkrypcja, audio_file_id,
-                    segmenty=None, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, czy_analizowane=False, analiza_data=None):
+                    segmenty=None, zadania_list=None, embedding_vector=None, photo_file_ids=None, cost_data=None, kategoria='Inne', kluczowe_mysli=None, terminy=None, decyzje=None, otwarte_watki=None,
+                    czy_analizowane=False, analiza_data=None):
         """
         Dodaje nową notatkę do bazy
 
@@ -199,7 +202,10 @@ class Database:
         # Serializuj kluczowe_mysli do JSON jeśli podane
         kluczowe_mysli_json = None
         if kluczowe_mysli:
-            kluczowe_mysli_json = json.dumps(kluczowe_mysli)
+            kluczowe_mysli_json = json.dumps(kluczowe_mysli, ensure_ascii=False)
+
+        decyzje_json = json.dumps(decyzje, ensure_ascii=False) if decyzje else None
+        otwarte_json = json.dumps(otwarte_watki, ensure_ascii=False) if otwarte_watki else None
 
         # Serializuj terminy do JSON jeśli podane
         terminy_json = None
@@ -248,6 +254,8 @@ class Database:
             kategoria=kategoria,
             kluczowe_mysli=kluczowe_mysli_json,
             terminy=terminy_json,
+            decyzje=decyzje_json,
+            otwarte_watki=otwarte_json,
             **cost_kwargs,
             **analiza_kwargs
         )
@@ -266,7 +274,8 @@ class Database:
     def update_notatka(self, notatka_id, telegram_user_id, temat=None, opis=None, transkrypcja=None,
                        segmenty=None,
                        zadania_list=None, embedding_vector=None, additional_cost_data=None, kategoria=None,
-                       kluczowe_mysli=None, terminy=None, czy_analizowane=None, analiza_data=None):
+                       kluczowe_mysli=None, terminy=None, decyzje=None, otwarte_watki=None,
+                       czy_analizowane=None, analiza_data=None):
         """
         Aktualizuje istniejącą notatkę
 

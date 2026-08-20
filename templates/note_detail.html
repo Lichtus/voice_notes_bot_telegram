@@ -177,6 +177,49 @@
             </section>
             {% endif %}
 
+            <!-- Sekcje podsumowania -->
+            {% if sekcje.kluczowe_mysli %}
+            <section class="section">
+                <h2>💡 Główne myśli i tematy</h2>
+                <ul class="summary-list">
+                    {% for m in sekcje.kluczowe_mysli %}
+                        {% if m is mapping %}
+                        <li><strong>{{ m.watek }}:</strong> {{ m.tresc }}</li>
+                        {% else %}
+                        <li>{{ m }}</li>
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
+            {% if sekcje.decyzje %}
+            <section class="section">
+                <h2>✅ Decyzje i wnioski</h2>
+                <ul class="summary-list">
+                    {% for d in sekcje.decyzje %}<li>{{ d }}</li>{% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
+            {% if sekcje.terminy %}
+            <section class="section">
+                <h2>📅 Terminy</h2>
+                <ul class="summary-list">
+                    {% for x in sekcje.terminy %}<li>{{ x }}</li>{% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
+            {% if sekcje.otwarte_watki %}
+            <section class="section">
+                <h2>🤔 Do rozważenia</h2>
+                <ul class="summary-list">
+                    {% for x in sekcje.otwarte_watki %}<li>{{ x }}</li>{% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
             <!-- Rozmówcy -->
             {% if rozmowa %}
             <section class="section">

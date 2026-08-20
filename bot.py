@@ -422,6 +422,59 @@ async def model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def _lista(wartosc):
+    """Sekcja z bazy (JSON w TEXT) albo z notatki w trakcie tworzenia (lista)."""
+    if not wartosc:
+        return []
+    if isinstance(wartosc, str):
+        try:
+            wartosc = json.loads(wartosc)
+        except (json.JSONDecodeError, TypeError):
+            return [wartosc]
+    return wartosc if isinstance(wartosc, list) else []
+
+
+def sekcje_notatki(zrodlo, skrocone=False):
+    """
+    Formatuje sekcje podsumowania do wiadomości Telegrama.
+
+    Przyjmuje zarówno wiersz z bazy, jak i słownik notatki w trakcie tworzenia.
+    Puste sekcje są pomijane — pusty nagłówek to sam szum.
+    """
+    def pole(nazwa):
+        return _lista(zrodlo.get(nazwa) if isinstance(zrodlo, dict)
+                      else getattr(zrodlo, nazwa, None))
+
+    czesci = []
+
+    mysli = pole("kluczowe_mysli")
+    if mysli:
+        linie = []
+        for m in mysli[:6] if skrocone else mysli:
+            if isinstance(m, dict):
+                # Bloki tematyczne z nowego promptu
+                linie.append(f"• *{m.get('watek', 'Wątek')}:* {m.get('tresc', '')}")
+            else:
+                linie.append(f"• {m}")   # starsze notatki: zwykłe napisy
+        czesci.append("💡 *GŁÓWNE MYŚLI:*\n" + "\n".join(linie))
+
+    decyzje = pole("decyzje")
+    if decyzje:
+        czesci.append("✅ *DECYZJE I WNIOSKI:*\n" +
+                      "\n".join(f"• {d}" for d in decyzje))
+
+    terminy = pole("terminy")
+    if terminy:
+        czesci.append("📅 *TERMINY:*\n" + "\n".join(f"• {x}" for x in terminy))
+
+    otwarte = pole("otwarte_watki")
+    if otwarte:
+        czesci.append("🤔 *DO ROZWAŻENIA:*\n" +
+                      "\n".join(f"• {x}" for x in otwarte))
+
+    return "\n\n".join(czesci)
+
+
 def odrzuc_biezaca_notatke(user_id):
     """
     Kasuje notatkę będącą w trakcie tworzenia i opisuje, co przepadło.
@@ -483,12 +536,16 @@ async def show_note_preview(update: Update, user_id: int):
     mowcy_text = podsumowanie_mowcow(note.get("segmenty"))
     mowcy_text = f"\n{mowcy_text}\n" if mowcy_text else ""
 
+    sekcje = sekcje_notatki(note, skrocone=True)
+    sekcje = f"\n{sekcje}\n" if sekcje else ""
+
     message = (
         "✅ *Notatka przetworzona!*\n\n"
         f"{kategoria_icon} *KATEGORIA:* {note.get('kategoria', 'Inne')}\n\n"
         f"📌 *TEMAT:*\n{note['temat']}\n\n"
         f"📝 *OPIS:*\n{note['opis']}"
         f"{zadania_text}"
+        f"{sekcje}"
         f"{mowcy_text}\n"
         "━━━━━━━━━━━━━━━━\n"
         "📸 Czy chcesz dodać zdjęcia do notatki?"
@@ -915,6 +972,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_notes[user_id]["opis"] = structure["opis"]
             pending_notes[user_id]["zadania"] = structure["zadania"]
             pending_notes[user_id]["kategoria"] = structure["kategoria"]
+            pending_notes[user_id]["kluczowe_mysli"] = structure.get("kluczowe_mysli", [])
+            pending_notes[user_id]["terminy"] = structure.get("terminy", [])
+            pending_notes[user_id]["decyzje"] = structure.get("decyzje", [])
+            pending_notes[user_id]["otwarte_watki"] = structure.get("otwarte_watki", [])
             pending_notes[user_id]["embedding"] = embedding
             pending_notes[user_id]["cost_data"] = {
                 "audio_duration_seconds": total_duration,
@@ -1045,6 +1106,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_file_ids=note["photos"] if note["photos"] else None,
                 cost_data=note.get("cost_data"),  # Dane o kosztach API
                 kategoria=note.get("kategoria", "Inne"),
+                kluczowe_mysli=note.get("kluczowe_mysli"),
+                terminy=note.get("terminy"),
+                decyzje=note.get("decyzje"),
+                otwarte_watki=note.get("otwarte_watki"),
                 czy_analizowane=czy_analizowane,
                 analiza_data=analiza_data
             )
@@ -1141,6 +1206,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_file_ids=note["photos"] if note["photos"] else None,
                 cost_data=note.get("cost_data"),  # Dane o kosztach API
                 kategoria=note.get("kategoria", "Inne"),
+                kluczowe_mysli=note.get("kluczowe_mysli"),
+                terminy=note.get("terminy"),
+                decyzje=note.get("decyzje"),
+                otwarte_watki=note.get("otwarte_watki"),
                 czy_analizowane=czy_analizowane,
                 analiza_data=analiza_data
             )
@@ -1187,7 +1256,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 embedding_vector=note.get("embedding"),
                 photo_file_ids=note["photos"] if note["photos"] else None,
                 cost_data=note.get("cost_data"),  # Dane o kosztach API
-                kategoria=note.get("kategoria", "Inne")
+                kategoria=note.get("kategoria", "Inne"),
+                kluczowe_mysli=note.get("kluczowe_mysli"),
+                terminy=note.get("terminy"),
+                decyzje=note.get("decyzje"),
+                otwarte_watki=note.get("otwarte_watki"),
             )
             del pending_notes[user_id]
 
@@ -1838,6 +1911,7 @@ async def send_full_note(update: Update, context: ContextTypes.DEFAULT_TYPE, not
         f"📌 *TEMAT:*\n{notatka.temat}\n\n"
         f"📝 *OPIS:*\n{notatka.opis}"
         f"{zadania_text}"
+        f"{chr(10) + chr(10) + sekcje_notatki(notatka) if sekcje_notatki(notatka) else ''}"
     )
 
     # Przyciski
@@ -1900,6 +1974,7 @@ async def send_full_note_from_callback(query, context: ContextTypes.DEFAULT_TYPE
         f"📌 *TEMAT:*\n{notatka.temat}\n\n"
         f"📝 *OPIS:*\n{notatka.opis}"
         f"{zadania_text}"
+        f"{chr(10) + chr(10) + sekcje_notatki(notatka) if sekcje_notatki(notatka) else ''}"
     )
 
     # Przyciski
@@ -2014,6 +2089,38 @@ async def generate_pdf_from_db(notatka, context):
     return await generate_pdf(note_dict, notatka.id, context)
 
 
+def sekcje_html(zrodlo):
+    """Sekcje podsumowania jako HTML do PDF-a. Puste są pomijane."""
+    def pole(nazwa):
+        return _lista(zrodlo.get(nazwa) if isinstance(zrodlo, dict)
+                      else getattr(zrodlo, nazwa, None))
+
+    def escape(x):
+        return (str(x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    html = ""
+    mysli = pole("kluczowe_mysli")
+    if mysli:
+        html += "<div class='sekcja'><h2>💡 Główne myśli i tematy</h2><ul>"
+        for m in mysli:
+            if isinstance(m, dict):
+                html += (f"<li><strong>{escape(m.get('watek', 'Wątek'))}:</strong> "
+                         f"{escape(m.get('tresc', ''))}</li>")
+            else:
+                html += f"<li>{escape(m)}</li>"
+        html += "</ul></div>"
+
+    for nazwa, naglowek in (("decyzje", "✅ Decyzje i wnioski"),
+                            ("terminy", "📅 Terminy"),
+                            ("otwarte_watki", "🤔 Do rozważenia")):
+        elementy = pole(nazwa)
+        if elementy:
+            html += f"<div class='sekcja'><h2>{naglowek}</h2><ul>"
+            html += "".join(f"<li>{escape(x)}</li>" for x in elementy)
+            html += "</ul></div>"
+    return html
+
+
 async def generate_pdf(note, notatka_id, context):
     """
     Generuje sformatowany PDF z notatki
@@ -2092,6 +2199,7 @@ async def generate_pdf(note, notatka_id, context):
             </div>
 
             {zadania_html}
+            {sekcje_html(note)}
 
             {photos_html}
         </div>
